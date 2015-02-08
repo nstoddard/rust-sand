@@ -1,0 +1,32 @@
+[package]
+name = "rustsand"
+version = "0.0.1"
+authors = ["Nathan Stoddard <nstodda@purdue.edu>"]
+
+[[bin]]
+name = "rustsand"
+
+[dependencies.glfw]
+git = "https://github.com/bjz/glfw-rs"
+default-features = false
+
+[dependencies.image]
+git = "https://github.com/PistonDevelopers/rust-image"
+
+[dependencies.freetype-rs]
+git = "https://github.com/PistonDevelopers/freetype-rs"
+
+[dependencies.gl]
+git = "https://github.com/bjz/gl-rs"
+
+[dependencies.vecmat]
+git = "https://github.com/nstoddard/vecmat"
+
+[dependencies.timer]
+git = "https://github.com/nstoddard/timer"
+
+[dependencies.gui]
+git = "https://github.com/nstoddard/gui-rs"
+
+[dependencies]
+rand = "*"
