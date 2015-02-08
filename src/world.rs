@@ -99,7 +99,7 @@ impl Cell {
       CellType::Empty => background_color(),
       CellType::Wall => Color::rgb(0.5, 0.5, 0.5),
       CellType::Granular(id, _, _) => grid.granular[id as usize].color,
-      CellType::Fluid(id, amount) => grid.fluid[id as usize].color.blend(background_color(), (amount as f32/1.0).min(1.0).max(0.3)),
+      CellType::Fluid(id, amount) => grid.fluid[id as usize].color.blend(background_color(), (amount as f32/1.0).min(1.0).max(0.5)),
       CellType::WaterGenerator => Color::rgb(0.0, 0.5, 1.0),
       CellType::SandGenerator => Color::rgb(0.9, 0.5, 0.2),
       CellType::Sink => Color::black(),
@@ -517,7 +517,6 @@ impl Index<Vec2<i32>> for Grid {
 }
 
 impl IndexMut<Vec2<i32>> for Grid {
-  type Output = Cell;
   fn index_mut(&mut self, index: &Vec2<i32>) -> &mut Cell {
     &mut self.cells[index.y as usize][index.x as usize]
   }
