@@ -1,4 +1,4 @@
-#![feature(optin_builtin_traits, core, path)]
+#![feature(optin_builtin_traits, core, path, link_args)]
 
 #![allow(dead_code, unused_imports, non_upper_case_globals, unused_unsafe, unused_variables, unused_mut)]
 
@@ -15,6 +15,7 @@ extern crate gui;
 use std::iter::*;
 use rand::Rng;
 use std::cmp;
+use std::num::Float;
 
 use timer::*;
 use vecmat::*;
@@ -34,15 +35,17 @@ mod world;
 
 use world::*;
 
+// #[cfg(windows)] #[link_args = "-Wl,--subsystem,windows"] extern {}
+
 const fps: i32 = 60;
 const dt: f64 = 1.0 / fps as f64;
 
 
 fn main() {
-  let cell_types = vec![CellType::Empty, CellType::Wall, CellType::Granular(0, false, false), CellType::Granular(1, false, false), CellType::Granular(2, false, false), CellType::Fluid(0, 1.0), CellType::Fluid(1, 1.0), CellType::Fluid(2, 1.0), CellType::WaterGenerator, CellType::SandGenerator, CellType::Sink];
+  let cell_types = vec![CellType::Empty, CellType::Solid(0), CellType::Solid(1), CellType::Granular(0, false, false), CellType::Granular(1, false, false), CellType::Granular(2, false, false), CellType::Fluid(0, 1.0), CellType::Fluid(1, 1.0), CellType::Fluid(2, 1.0), CellType::Fluid(3, 1.0), CellType::WaterGenerator, CellType::SandGenerator, CellType::Sink];
 
   let world_size = Vec2(1200/cell_size, 750/cell_size);
-  println!("{}", world_size);
+  // println!("{}", world_size);
 
   let mut rng = rand::thread_rng();
 
@@ -52,19 +55,21 @@ fn main() {
   let mut window = GUIWindow::new(&mut glfw, window_mode, &resource_path);
   let font = window.load_font(&(resource_path.join("DejaVuSans.ttf")), 16);
 
-  let mut fps_logger = FPSLogger::new(1.0);
+  let mut fps_logger = FPSLogger::new(5.0);
 
-  let mut quit_button = ButtonWidget::new(font.clone(), "Quit", Color::black());
-  let mut pause_button = ButtonWidget::new(font.clone(), "Pause", Color::black());
-  let mut step_button = ButtonWidget::new(font.clone(), "Step", Color::black());
+  let mut quit_button = ButtonWidget::new(font.clone(), "Quit");
+  let mut pause_button = ButtonWidget::new(font.clone(), "Pause").with_text_color(Color::red());
+  let mut step_button = ButtonWidget::new(font.clone(), "Step");
+  let mut draw_mode_button = ButtonWidget::new(font.clone(), "Toggle draw mode");
 
-  let mut circle_button = ButtonWidget::new(font.clone(), "Circle", Color::black());
-  let mut square_button = ButtonWidget::new(font.clone(), "Square", Color::black());
-  let mut size_1_button = ButtonWidget::new(font.clone(), "Size 1", Color::black());
-  let mut size_2_button = ButtonWidget::new(font.clone(), "Size 2", Color::black());
-  let mut size_5_button = ButtonWidget::new(font.clone(), "Size 5", Color::black());
-  let mut size_10_button = ButtonWidget::new(font.clone(), "Size 10", Color::black());
-  let mut size_20_button = ButtonWidget::new(font.clone(), "Size 20", Color::black());
+  let mut circle_button = ButtonWidget::new(font.clone(), "Circle");
+  let mut square_button = ButtonWidget::new(font.clone(), "Square");
+  let mut diamond_button = ButtonWidget::new(font.clone(), "Diamond");
+  let mut size_1_button = ButtonWidget::new(font.clone(), "Size 1");
+  let mut size_2_button = ButtonWidget::new(font.clone(), "Size 2");
+  let mut size_5_button = ButtonWidget::new(font.clone(), "Size 5");
+  let mut size_10_button = ButtonWidget::new(font.clone(), "Size 10");
+  let mut size_20_button = ButtonWidget::new(font.clone(), "Size 20");
 
   // TODO: get rid of this hack
   let mut gap0 = EmptyWidget::new(Vec2::zero());
@@ -81,25 +86,26 @@ fn main() {
 
   let mut cell_type_widgets = Vec::new();
   for typ in cell_types.iter() {
-    cell_type_widgets.push(ButtonWidget::new(font.clone(), typ.name(&world.grid), Color::black()));
+    cell_type_widgets.push(ButtonWidget::new(font.clone(), typ.name(&world.grid)));
   }
 
-  let mut cur_cell_type_index = 2;
+  let mut cur_cell_type_index = 3;
   let mut cur_cell_type = cell_types[cur_cell_type_index];
 
   let mut brush = Brush::Circle;
   let mut brush_size = 10;
+
+  let mut draw_temp = false;
 
   while !window.glfw_window.should_close() {
     fps_logger.update();
     check_gl_error("game loop");
 
 
-
     if !paused {
       world.simulate(&mut rng);
     }
-    world.update_mesh();
+    world.update_mesh(draw_temp);
 
     {
       let mut controls = vec![
@@ -107,6 +113,7 @@ fn main() {
         (LWidget(&mut gap4), 1.0),
         (LWidget(&mut pause_button), 0.0),
         (LWidget(&mut step_button), 0.0),
+        (LWidget(&mut draw_mode_button), 0.0),
         (LWidget(&mut gap0), 1.0),
       ];
       for widget in cell_type_widgets.iter_mut() {
@@ -116,6 +123,7 @@ fn main() {
         (LWidget(&mut gap1), 1.0),
         (LWidget(&mut circle_button), 0.0),
         (LWidget(&mut square_button), 0.0),
+        (LWidget(&mut diamond_button), 0.0),
         (LWidget(&mut gap2), 1.0),
         (LWidget(&mut size_1_button), 0.0),
         (LWidget(&mut size_2_button), 0.0),
@@ -126,9 +134,9 @@ fn main() {
       ].into_iter());
 
       window.draw_gui(
-        HPanel(Leading, vec![
+        HPanel(Leading, 0, vec![
           (LWidget(&mut world), 0.0),
-          (VPanel(Leading, controls), 1.0),
+          (VPanel(Leading, 5, controls), 1.0),
         ]),
         &mut glfw, Color::white());
     }
@@ -156,12 +164,18 @@ fn main() {
       pause_button.set_text("Unpause");
       world.simulate(&mut rng);
     }
+    if draw_mode_button.was_pressed() {
+      draw_temp = !draw_temp;
+    }
 
     if circle_button.was_pressed() {
       brush = Brush::Circle;
     }
     if square_button.was_pressed() {
       brush = Brush::Square;
+    }
+    if diamond_button.was_pressed() {
+      brush = Brush::Diamond;
     }
     if size_1_button.was_pressed() {
       brush_size = 1;
@@ -192,6 +206,9 @@ fn main() {
                 pause_button.set_text("Pause");
               }
             },
+            glfw::Key::M => {
+              draw_temp = !draw_temp;
+            }
             glfw::Key::Space => {
               paused = true;
               pause_button.set_text("Unpause");
@@ -221,6 +238,15 @@ fn main() {
               }
               println!("Total water: {}", total_water);
             },
+            glfw::Key::F => {
+              let mut total_heat = 0.0;
+              for y in range(0, world.grid.size.y) {
+                for x in range(0, world.grid.size.x) {
+                  total_heat += world.grid[Vec2(x,y)].heat;
+                }
+              }
+              println!("Total heat: {}", total_heat);
+            }
             _ => ()
           }
         },
@@ -235,6 +261,15 @@ fn main() {
           for point in brush.get_points(brush_size, pos).into_iter() {
             if world.grid.in_range(point) {
               world.grid[point].typ = cur_cell_type;
+            }
+          }
+        },
+        // TODO: remove this hack
+        Event::MouseButton(glfw::MouseButton::Button2, Action::Press, _, pos) => {
+          let pos = pos/cell_size;
+          for point in brush.get_points(brush_size, pos).into_iter() {
+            if world.grid.in_range(point) {
+              world.grid[point].heat += 110.0;
             }
           }
         },
@@ -261,6 +296,7 @@ fn main() {
 pub enum Brush {
   Circle,
   Square,
+  Diamond,
 }
 
 impl Brush {
@@ -297,7 +333,22 @@ impl Brush {
           }
         }
         points
-      }
+      },
+      Brush::Diamond => {
+        let radius = diameter as f64*0.5;
+        let radius2 = radius as i32 + 1;
+        let mut points = Vec::new();
+        for y in range_inclusive(-radius2, radius2) {
+          for x in range_inclusive(-radius2, radius2) {
+            let x2 = x as f64;
+            let y2 = y as f64;
+            if x2.abs() + y2.abs() <= radius {
+              points.push(Vec2(x,y) + center);
+            }
+          }
+        }
+        points
+      },
     }
   }
 }

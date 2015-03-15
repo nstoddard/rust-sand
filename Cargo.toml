@@ -26,7 +26,9 @@ git = "https://github.com/nstoddard/vecmat"
 git = "https://github.com/nstoddard/timer"
 
 [dependencies.gui]
-git = "https://github.com/nstoddard/gui-rs"
+path = "../../released-libs/gui-rs"
+
+# git = "https://github.com/nstoddard/gui-rs"
 
 [dependencies]
 rand = "*"

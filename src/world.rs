@@ -13,6 +13,11 @@ use gui::util::*;
 use gui::gui::*;
 use gui::new_gl_program::*;
 
+#[derive(Copy, Clone)]
+struct Solid {
+  name: &'static str,
+  color: Color<f32>,
+}
 
 #[derive(Copy, Clone)]
 struct Granular {
@@ -46,7 +51,8 @@ pub type TypeId = u16;
 #[derive(Copy, Clone, PartialEq)]
 pub enum CellType {
   Empty,
-  Wall,
+  // Wall,
+  Solid(TypeId),
   Granular(TypeId, bool, bool),
   Fluid(TypeId, f64),
   WaterGenerator,
@@ -57,10 +63,11 @@ pub enum CellType {
 #[derive(Copy, Clone)]
 pub struct Cell {
   pub typ: CellType,
-  updated: bool,
+  // pub temp: f64,
+  pub heat: f64,
 }
 
-const min_mass: f64 = 0.000001; //Ignore fluid cells that are almost dry - pretend the fluid evaporated
+const min_fluid: f64 = 0.001; //Ignore fluid cells that are almost dry - pretend the fluid evaporated
 
 pub const cell_size: i32 = 5;
 
@@ -83,12 +90,34 @@ impl CellType {
   pub fn name(self, grid: &Grid) -> &str {
     match self {
       CellType::Empty => "empty",
-      CellType::Wall => "wall",
+      // CellType::Wall => "wall",
+      CellType::Solid(id) => grid.solid[id as usize].name,
       CellType::Granular(id, _, _) => grid.granular[id as usize].name,
       CellType::Fluid(id, _) => grid.fluid[id as usize].name,
       CellType::WaterGenerator => "water generator",
       CellType::SandGenerator => "sand generator",
       CellType::Sink => "sink",
+    }
+  }
+
+  pub fn conductivity(self, grid: &Grid) -> f64 {
+    // TODO: using self.typ here results in ICE
+    match self {
+      CellType::Empty => 0.5,
+      CellType::Solid(id) => 0.25,
+      CellType::Granular(id, _, _) => 0.1,
+      CellType::Fluid(id, amount) => 0.1,
+      _ => 0.1,
+    }
+  }
+
+  pub fn heat_cap(self, grid: &Grid) -> f64 {
+    match self {
+      CellType::Empty => 0.05,
+      CellType::Solid(id) => 1.0,
+      CellType::Granular(id, _, _) => 1.0,
+      CellType::Fluid(id, amount) => 1.0,
+      _ => 1.0,
     }
   }
 }
@@ -97,7 +126,8 @@ impl Cell {
   pub fn color(self, grid: &Grid) -> Color<f32> {
     match self.typ {
       CellType::Empty => background_color(),
-      CellType::Wall => Color::rgb(0.5, 0.5, 0.5),
+      // CellType::Wall => Color::rgb(0.5, 0.5, 0.5),
+      CellType::Solid(id) => grid.solid[id as usize].color,
       CellType::Granular(id, _, _) => grid.granular[id as usize].color,
       CellType::Fluid(id, amount) => grid.fluid[id as usize].color.blend(background_color(), (amount as f32/1.0).min(1.0).max(0.5)),
       CellType::WaterGenerator => Color::rgb(0.0, 0.5, 1.0),
@@ -106,9 +136,33 @@ impl Cell {
     }
   }
 
+  pub fn temp(self, grid: &Grid) -> f64 {
+    let amount = match self.typ {
+      CellType::Fluid(_, amount) => amount,
+      _ => 1.0
+    };
+    // TODO: the amount should never be zero
+    if amount == 0.0 {0.0} else {self.typ.heat_cap(grid) * self.heat / amount}
+  }
+
+  fn temp_color(self, grid: &Grid) -> Color<f32> {
+    Color::red().blend(Color::blue(), self.temp(grid) as f32 / 200.0)
+  }
+
+  // TODO: fix this hack
+  pub fn handle_temp<R: Rng>(self, grid: &mut Grid, pos: Vec2<i32>, rng: &mut R) {
+    let temp = self.temp(grid);
+    // println!("{}", temp);
+    match self.typ {
+      CellType::Fluid(0, amount) if temp > 100.0 => {grid[pos].typ = CellType::Fluid(3, amount);}
+      CellType::Fluid(3, amount) if temp < 100.0 => {grid[pos].typ = CellType::Fluid(0, amount);}
+      _ => {}
+    }
+  }
+
   pub fn simulate<R: Rng>(self, grid: &mut Grid, pos: Vec2<i32>, rng: &mut R) {
     // Skip cells that have already been updated
-    if grid[pos].updated {
+    if grid.updated(pos) {
       return;
     }
 
@@ -137,7 +191,7 @@ impl Cell {
     match self.typ {
       CellType::Granular(id, settled_45, settled_90) => {
         let typ = grid.granular[id as usize];
-        if can_move_down || ((can_move_d_left || can_move_d_right) && !settled_90&& rng.gen::<f64>() < typ.spread_speed) || ((can_move_left || can_move_right) && !settled_45 && (rng.gen::<f64>() < 0.2)) {
+        if can_move_down || ((can_move_d_left || can_move_d_right) && !settled_90 && rng.gen::<f64>() < typ.spread_speed) || ((can_move_left || can_move_right) && !settled_45 && (rng.gen::<f64>() < 0.2)) {
           let new_pos = if can_move_down && (rng.gen::<f64>() < 1.0-typ.horizontal_spread ||
             (!can_move_d_left && !can_move_d_right)) {pos+down}
           else if can_move_d_left && !can_move_d_right {pos+d_left}
@@ -148,10 +202,11 @@ impl Cell {
           else if can_move_right && !can_move_left {pos+right}
           else if rng.gen::<f64>() < 0.5 {pos+left} else {pos+right};
           assert!(grid[new_pos].typ == CellType::Empty);
+          grid.swap_temps(pos, new_pos);
           grid[pos].typ = CellType::Empty;
           grid[new_pos].typ = CellType::Granular(id, rng.gen::<f64>() < typ.granularity_45, rng.gen::<f64>() < typ.granularity_90);
           if typ.fall_speed <= 1.0 || rng.gen::<f64>() < 2.0-typ.fall_speed {
-            grid[new_pos].updated = true;
+            grid.update(new_pos);
           }
         }
       },
@@ -191,6 +246,7 @@ impl Cell {
               if amount_in_bottom > total_amount {
                 println!("Down: {}/{}", amount_in_bottom, total_amount);
               }
+              // TODO: temperature mixing
               grid[pos+mydown].typ = CellType::Fluid(id, amount_in_bottom);
               grid[pos].typ = CellType::Fluid(id, total_amount-amount_in_bottom);
               amount = total_amount-amount_in_bottom;
@@ -198,6 +254,7 @@ impl Cell {
             CellType::Fluid(id2, amount2) if id2 != id => {
               let other_typ = grid.fluid[id2 as usize];
               if other_typ.density < typ.density && rng.gen::<f64>() < (typ.density/other_typ.density).min(2.0) - 1.0 {
+                grid.swap_temps(pos, pos+mydown);
                 grid[pos].typ = CellType::Fluid(id2, amount2);
                 grid[pos+mydown].typ = CellType::Fluid(id, amount);
                 amount = 0.0;
@@ -205,10 +262,11 @@ impl Cell {
             }
             CellType::Empty => {
               // TODO: sometimes the mass should be split in this case
+              grid.swap_temps(pos, pos+mydown);
               grid[pos].typ = CellType::Empty;
               grid[pos+mydown].typ = CellType::Fluid(id, amount);
               if typ.fall_speed <= 1.0 || rng.gen::<f64>() < 2.0-typ.fall_speed {
-                grid[pos+mydown].updated = true;
+                grid.update(pos+mydown);
               }
               amount = 0.0;
             }
@@ -219,28 +277,32 @@ impl Cell {
         if amount > 0.0 && (can_move_left || can_move_right) && rng.gen::<f64>() < 1.0 {
           // TODO: add a config setting for this, spread_speed or something
           if can_move_left && !can_move_right {
+            // TODO: temperature mixing
             grid[pos].typ = CellType::Fluid(id, amount*0.25);
             grid[pos+left].typ = CellType::Fluid(id, amount*0.75);
             if typ.fall_speed <= 1.0 || rng.gen::<f64>() < 2.0-typ.fall_speed {
-              grid[pos+left].updated = true;
+              grid.update(pos+left);
             }
           } else if can_move_right && !can_move_left {
+            // TODO: temperature mixing
             grid[pos].typ = CellType::Fluid(id, amount*0.25);
             grid[pos+right].typ = CellType::Fluid(id, amount*0.75);
             if typ.fall_speed <= 1.0 || rng.gen::<f64>() < 2.0-typ.fall_speed {
-              grid[pos+right].updated = true;
+              grid.update(pos+right);
             }
           } else if rng.gen::<f64>() < 0.5 {
+            // TODO: temperature mixing
             grid[pos].typ = CellType::Fluid(id, amount*0.25);
             grid[pos+left].typ = CellType::Fluid(id, amount*0.75);
             if typ.fall_speed <= 1.0 || rng.gen::<f64>() < 2.0-typ.fall_speed {
-              grid[pos+left].updated = true;
+              grid.update(pos+left);
             }
           } else {
+            // TODO: temperature mixing
             grid[pos].typ = CellType::Fluid(id, amount*0.25);
             grid[pos+right].typ = CellType::Fluid(id, amount*0.75);
             if typ.fall_speed <= 1.0 || rng.gen::<f64>() < 2.0-typ.fall_speed {
-              grid[pos+right].updated = true;
+              grid.update(pos+right);
             }
           }
           amount = amount * 0.25;
@@ -254,6 +316,7 @@ impl Cell {
             CellType::Fluid(id2, amount2) if id2 == id => {
               let mut flow = (amount - amount2)*0.5;
               flow = flow.min(amount).max(0.0);
+              // TODO: temperature mixing
               grid[pos].typ = CellType::Fluid(id, amount-flow);
               grid[pos+dir1].typ = CellType::Fluid(id, amount2+flow);
               amount -= flow;
@@ -267,6 +330,7 @@ impl Cell {
             CellType::Fluid(id2, amount2) if id2 == id => {
               let mut flow = (amount - amount2)*0.5;
               flow = flow.min(amount).max(0.0);
+              // TODO: temperature mixing
               grid[pos].typ = CellType::Fluid(id, amount-flow);
               grid[pos+dir2].typ = CellType::Fluid(id, amount2+flow);
               amount -= flow;
@@ -283,16 +347,20 @@ impl Cell {
               if amount_in_bottom > total_amount {
                 println!("Up: {}/{}", amount_in_bottom, total_amount);
               }
+              // TODO: temperature mixing
               grid[pos].typ = CellType::Fluid(id, amount_in_bottom);
               grid[pos+up].typ = CellType::Fluid(id, total_amount-amount_in_bottom);
               amount = amount_in_bottom;
             }
             CellType::Empty => {
               let amount_in_bottom = stable_state(amount, typ.compressibility);
-              grid[pos].typ = CellType::Fluid(id, amount_in_bottom);
-              grid[pos+up].typ = CellType::Fluid(id, amount - amount_in_bottom);
-              if typ.fall_speed <= 1.0 || rng.gen::<f64>() < 2.0-typ.fall_speed {
-                grid[pos+up].updated = true;
+              if amount - amount_in_bottom > min_fluid {
+                // TODO: temperature mixing
+                grid[pos].typ = CellType::Fluid(id, amount_in_bottom);
+                grid[pos+up].typ = CellType::Fluid(id, amount - amount_in_bottom);
+                if typ.fall_speed <= 1.0 || rng.gen::<f64>() < 2.0-typ.fall_speed {
+                  grid.update(pos+up);
+                }
               }
             }
             _ => ()
@@ -314,7 +382,6 @@ const right_: Vec2<i32> = Vec2{x: 1, y: 0};
 
 
 
-
 pub struct World {
   id: Id,
   mesh: NewMesh<UnlitProgram>,
@@ -327,9 +394,12 @@ pub struct World {
 impl World {
   pub fn new<R: Rng>(size: Vec2<i32>, window: &GUIWindow, rng: &mut R) -> World {
     let mut cells = Vec::new();
+    let mut updated = Vec::new();
     for y in range(0, size.y) {
-      let row = repeat(Cell{typ: CellType::Empty, updated: false}).take(size.x as usize).collect();
+      let row = repeat(Cell{typ: CellType::Empty, heat: 10.0}).take(size.x as usize).collect();
+      let updated_row = repeat(false).take(size.x as usize).collect();
       cells.push(row);
+      updated.push(updated_row);
     }
     let mut mesh = NewMesh::new(window.unlit_program.clone(), Primitive::Triangles, MeshUsage::DynamicDraw);
     mesh.add_vertex(UnlitVertex{
@@ -348,8 +418,8 @@ impl World {
       pos: Vec2(0.0, size.y as f32),
       texcoord: Vec2(0.0, 1.0),
     });
-    mesh.triangle(0, 1, 2);
-    mesh.triangle(2, 3, 0);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(2, 3, 0);
 
     let texture = Texture::texture2d_empty(size.x*cell_size, size.y*cell_size, gl::RGB8,
       MinNearest, MagNearest);
@@ -368,6 +438,16 @@ impl World {
     }
     rng.shuffle(coords.as_mut_slice());
 
+    let solid = vec![
+      Solid{
+        name: "wall",
+        color: Color::rgb(0.5, 0.5, 0.5),
+      },
+      Solid{
+        name: "ice",
+        color: Color::white().blend(background_color(), 0.65),
+      },
+    ];
     // TODO: move these to a config file
     let granular = vec![
       Granular{
@@ -429,43 +509,73 @@ impl World {
         down_dir: up_,
         up_dir: down_,
       },
+      Fluid{
+        name: "steam",
+        horizontal_spread: 0.05,
+        fall_speed: 1.0,
+        compressibility: 0.05,
+        color: Color::rgb(0.0, 0.2, 1.0).blend(Color::white(), 0.6).blend(background_color(), 0.7),
+        density: 0.3,
+        down_dir: up_,
+        up_dir: down_,
+      },
     ];
 
-    let grid = Grid{cells: cells, size: size, granular: granular, fluid: fluid};
+    let grid = Grid{cells: cells, updated: updated, size: size, solid: solid, granular: granular, fluid: fluid};
     World{grid: grid, mesh: mesh, texture: texture, coords: coords, pixels: pixels, id: next_id()}
   }
 
   pub fn simulate<R: Rng>(&mut self, rng: &mut R) {
     for y in range(0, self.grid.size.y) {
       for x in range(0, self.grid.size.x) {
-        self.grid.cells[y as usize][x as usize].updated = false;
-      }
-    }
-
-    for &coord in self.coords.iter() {
-      self.grid.cells[coord.y as usize][coord.x as usize].simulate(&mut self.grid, coord, rng);
-    }
-
-    for y in range(0, self.grid.size.y) {
-      for x in range(0, self.grid.size.x) {
         match self.grid.cells[y as usize][x as usize].typ {
-          CellType::Fluid(id, amount) if amount <= min_mass => {
+          CellType::Fluid(id, amount) if amount <= min_fluid => {
             assert!(amount >= 0.0);
             self.grid.cells[y as usize][x as usize].typ = CellType::Empty;
           },
           _ => ()
         }
+
+        // self.grid.cells[y as usize][x as usize].updated = false;
+        self.grid.updated[y as usize][x as usize] = false;
+      }
+    }
+
+    for &coord in self.coords.iter() {
+      self.grid.cells[coord.y as usize][coord.x as usize].handle_temp(&mut self.grid, coord, rng);
+      self.grid.cells[coord.y as usize][coord.x as usize].simulate(&mut self.grid, coord, rng);
+    }
+
+    // TODO: fix this
+    for y in range(1, self.grid.size.y-1) {
+      for x in range(1, self.grid.size.x-1) {
+        let cur = self.grid[Vec2(x,y)];
+        for &dir in [left_, right_, up_, down_].iter() {
+          let neighbor = self.grid[Vec2(x,y)+dir];
+          let conductivity = cur.typ.conductivity(&self.grid) *
+            neighbor.typ.conductivity(&self.grid);
+          let tempDiff = neighbor.temp(&self.grid) - cur.temp(&self.grid);
+          if tempDiff < 0.0 {
+            let transferTemp = -tempDiff * 0.25 * conductivity;
+            self.grid[Vec2(x,y)].heat -= transferTemp;
+            self.grid[Vec2(x,y)+dir].heat += transferTemp;
+          }
+        }
       }
     }
   }
 
-  pub fn update_mesh(&mut self) {
+  pub fn update_mesh(&mut self, draw_temp: bool) {
     self.pixels.clear();
     for y in range(0, self.grid.size.y) {
       for _ in range(0, cell_size) {
         for x in range(0, self.grid.size.x) {
           for _ in range(0, cell_size) {
-            let color = self.grid.cells[y as usize][x as usize].color(&self.grid);
+            let color = if draw_temp {
+              self.grid.cells[y as usize][x as usize].temp_color(&self.grid)
+            } else {
+              self.grid.cells[y as usize][x as usize].color(&self.grid)
+            };
             self.pixels.push((color.r*255.0) as u8);
             self.pixels.push((color.g*255.0) as u8);
             self.pixels.push((color.b*255.0) as u8);
@@ -499,11 +609,27 @@ impl Widget for World {
 pub struct Grid {
   pub size: Vec2<i32>,
   cells: Vec<Vec<Cell>>,
+  updated: Vec<Vec<bool>>,
+  solid: Vec<Solid>,
   granular: Vec<Granular>,
   fluid: Vec<Fluid>,
 }
 
 impl Grid {
+  pub fn updated(&self, pos: Vec2<i32>) -> bool {
+    self.updated[pos.y as usize][pos.x as usize]
+  }
+  pub fn update(&mut self, pos: Vec2<i32>) {
+    self.updated[pos.y as usize][pos.x as usize] = true;
+  }
+
+  pub fn swap_temps(&mut self, old_pos: Vec2<i32>, new_pos: Vec2<i32>) {
+    let old_heat = self[old_pos].heat;
+    let new_heat = self[new_pos].heat;
+    self[old_pos].heat = new_heat;
+    self[new_pos].heat = old_heat;
+  }
+
   pub fn in_range(&self, pos: Vec2<i32>) -> bool {
     pos.x >= 0 && pos.y >= 0 && pos.x < self.size.x && pos.y < self.size.y
   }
