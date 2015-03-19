@@ -58,6 +58,10 @@ pub enum CellType {
   WaterGenerator,
   SandGenerator,
   Sink,
+  Plant,
+  Fire,
+  Torch,
+  ExplodingNitro(Vec2<i32>),
 }
 
 #[derive(Copy, Clone)]
@@ -97,6 +101,10 @@ impl CellType {
       CellType::WaterGenerator => "water generator",
       CellType::SandGenerator => "sand generator",
       CellType::Sink => "sink",
+      CellType::Plant => "plant",
+      CellType::Fire => "fire",
+      CellType::Torch => "torch",
+      CellType::ExplodingNitro(..) => "exploding nitro",
     }
   }
 
@@ -133,6 +141,10 @@ impl Cell {
       CellType::WaterGenerator => Color::rgb(0.0, 0.5, 1.0),
       CellType::SandGenerator => Color::rgb(0.9, 0.5, 0.2),
       CellType::Sink => Color::black(),
+      CellType::Plant => Color::green()*0.6,
+      CellType::Fire => Color::rgb(1.0, 0.325, 0.0),
+      CellType::Torch => Color::rgb(1.0, 0.1, 0.0),
+      CellType::ExplodingNitro(..) => Color::rgb(0.3, 0.5, 0.3),
     }
   }
 
@@ -151,13 +163,13 @@ impl Cell {
 
   // TODO: fix this hack
   pub fn handle_temp<R: Rng>(self, grid: &mut Grid, pos: Vec2<i32>, rng: &mut R) {
-    let temp = self.temp(grid);
+    /*let temp = self.temp(grid);
     // println!("{}", temp);
     match self.typ {
       CellType::Fluid(0, amount) if temp > 100.0 => {grid[pos].typ = CellType::Fluid(3, amount);}
       CellType::Fluid(3, amount) if temp < 100.0 => {grid[pos].typ = CellType::Fluid(0, amount);}
       _ => {}
-    }
+    }*/
   }
 
   pub fn simulate<R: Rng>(self, grid: &mut Grid, pos: Vec2<i32>, rng: &mut R) {
@@ -187,6 +199,35 @@ impl Cell {
       grid[pos+right].typ == CellType::Empty;
     let can_move_up = grid.in_range(pos+up) &&
       grid[pos+up].typ == CellType::Empty;
+
+    match self.typ {
+      CellType::Fluid(4, amount) if amount >= 1.0 && grid.in_range(pos+down) => {
+        let allow = match grid[pos+down].typ {
+          CellType::Fluid(..) => false,
+          CellType::Empty => false,
+          _ => true
+        };
+        if rng.gen::<f64>() < 0.05 && allow {
+          grid[pos].typ = CellType::Solid(0);
+          return;
+        }
+      },
+      CellType::Granular(3, _, _) if grid.in_range(pos+down+left) &&
+        grid.in_range(pos+up+right) => {
+        if rng.gen::<f64>() < 0.1 {
+          for x in range_inclusive(-1, 1) {
+            for y in range_inclusive(-1, 1) {
+              if x != 0 || y != 0 {
+                grid[pos+Vec2(x,y)].typ = CellType::ExplodingNitro(Vec2(x,y));
+              }
+            }
+          }
+          grid[pos].typ = CellType::Empty;
+          return;
+        }
+      },
+      _ => ()
+    }
 
     match self.typ {
       CellType::Granular(id, settled_45, settled_90) => {
@@ -220,9 +261,69 @@ impl Cell {
           grid[pos+down].typ = CellType::Granular(0, false, false);
         }
       },
+      CellType::Torch => {
+        if can_move_up {
+          grid[pos+up].typ = CellType::Fire;
+        }
+      },
+      CellType::ExplodingNitro(dir) => {
+        if grid.in_range(pos+dir) && rng.gen::<f64>() < 0.6 {
+          grid[pos+dir].typ = CellType::ExplodingNitro(dir);
+          if rng.gen::<f64>() < 0.1 {
+            grid[pos].typ = CellType::Empty;
+          }
+        } else {
+          grid[pos].typ = CellType::Empty;
+        }
+      }
       CellType::Sink => {
         if grid.in_range(pos+up) {
           grid[pos+up].typ = CellType::Empty;
+        }
+      },
+      CellType::Plant => {
+        let mut neighbor = pos;
+        let rand = rng.gen::<f64>();
+        if rand < 0.25 {
+          neighbor = neighbor + Vec2(1,0)
+        } else if rand < 0.5 {
+          neighbor = neighbor + Vec2(-1,0)
+        } else if rand < 0.75 {
+          neighbor = neighbor + Vec2(0,1)
+        } else {
+          neighbor = neighbor + Vec2(0,-1)
+        }
+        if grid.in_range(neighbor) {
+          match grid[neighbor].typ {
+            CellType::Fluid(0, amount) if amount >= 1.0 => grid[neighbor].typ = CellType::Plant,
+            _ => (),
+          }
+        }
+      },
+      CellType::Fire => {
+        if rng.gen::<f64>() < 0.18 && can_move_up {
+          grid[pos+up].typ = CellType::Fire;
+        }
+        if rng.gen::<f64>() < 0.1 {
+          grid[pos].typ = CellType::Empty;
+        }
+        let mut neighbor = pos;
+        let rand = rng.gen::<f64>();
+        if rand < 0.25 {
+          neighbor = neighbor + Vec2(1,0)
+        } else if rand < 0.5 {
+          neighbor = neighbor + Vec2(-1,0)
+        } else if rand < 0.75 {
+          neighbor = neighbor + Vec2(0,1)
+        } else {
+          neighbor = neighbor + Vec2(0,-1)
+        }
+        if grid.in_range(neighbor) {
+          match grid[neighbor].typ {
+            CellType::Plant => grid[neighbor].typ = CellType::Fire,
+            CellType::Fluid(1, amount) => grid[neighbor].typ = CellType::Fire,
+            _ => (),
+          }
         }
       },
 
@@ -477,6 +578,15 @@ impl World {
         fall_speed: 1.0,
         color: Color::rgb(1.0, 1.0, 1.0),
       },
+      Granular{
+        name: "nitro",
+        granularity_45: 0.2,
+        granularity_90: 0.0,
+        horizontal_spread: 0.05,
+        spread_speed: 0.8,
+        fall_speed: 1.0,
+        color: Color::rgb(0.1, 0.4, 0.05),
+      },
     ];
     let fluid = vec![
       Fluid{
@@ -519,6 +629,16 @@ impl World {
         down_dir: up_,
         up_dir: down_,
       },
+      Fluid{
+        name: "cement",
+        horizontal_spread: 0.01,
+        fall_speed: 0.5, // TODO: this doesn't seem to do anything
+        compressibility: 0.01,
+        color: Color::rgb(0.3, 0.3, 0.3),
+        density: 2.0,
+        down_dir: down_,
+        up_dir: up_,
+      },
     ];
 
     let grid = Grid{cells: cells, updated: updated, size: size, solid: solid, granular: granular, fluid: fluid};
@@ -556,9 +676,10 @@ impl World {
             neighbor.typ.conductivity(&self.grid);
           let tempDiff = neighbor.temp(&self.grid) - cur.temp(&self.grid);
           if tempDiff < 0.0 {
-            let transferTemp = -tempDiff * 0.25 * conductivity;
-            self.grid[Vec2(x,y)].heat -= transferTemp;
-            self.grid[Vec2(x,y)+dir].heat += transferTemp;
+            let transfer_temp = -tempDiff * 0.25 * conductivity;
+            // println!("{} {} {}", tempDiff, conductivity, transfer_temp);
+            self.grid[Vec2(x,y)].heat -= transfer_temp;
+            self.grid[Vec2(x,y)+dir].heat += transfer_temp;
           }
         }
       }

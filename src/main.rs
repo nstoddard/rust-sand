@@ -1,3 +1,9 @@
+/* TODO
+  Bugs:
+    When placing cells near the bottom of the screen, the cells are a few units lower than they should be.
+      This happens because the window is larger than expected - the large number of interface buttons expands the window beyond the world widget's minimum size, so the widget scales but mouse clicks don't.
+*/
+
 #![feature(optin_builtin_traits, core, path, link_args)]
 
 #![allow(dead_code, unused_imports, non_upper_case_globals, unused_unsafe, unused_variables, unused_mut)]
@@ -15,7 +21,7 @@ extern crate gui;
 use std::iter::*;
 use rand::Rng;
 use std::cmp;
-use std::num::Float;
+use std::num::*;
 
 use timer::*;
 use vecmat::*;
@@ -42,7 +48,7 @@ const dt: f64 = 1.0 / fps as f64;
 
 
 fn main() {
-  let cell_types = vec![CellType::Empty, CellType::Solid(0), CellType::Solid(1), CellType::Granular(0, false, false), CellType::Granular(1, false, false), CellType::Granular(2, false, false), CellType::Fluid(0, 1.0), CellType::Fluid(1, 1.0), CellType::Fluid(2, 1.0), CellType::Fluid(3, 1.0), CellType::WaterGenerator, CellType::SandGenerator, CellType::Sink];
+  let cell_types = vec![CellType::Empty, CellType::Solid(0), CellType::Solid(1), CellType::Granular(0, false, false), CellType::Granular(1, false, false), CellType::Granular(2, false, false), CellType::Granular(3, false, false), CellType::Fluid(0, 1.0), CellType::Fluid(1, 1.0), CellType::Fluid(2, 1.0), CellType::Fluid(3, 1.0), CellType::Fluid(4, 1.0), CellType::WaterGenerator, CellType::SandGenerator, CellType::Sink, CellType::Plant, CellType::Fire, CellType::Torch];
 
   let world_size = Vec2(1200/cell_size, 750/cell_size);
   // println!("{}", world_size);
@@ -58,7 +64,7 @@ fn main() {
   let mut fps_logger = FPSLogger::new(5.0);
 
   let mut quit_button = ButtonWidget::new(font.clone(), "Quit");
-  let mut pause_button = ButtonWidget::new(font.clone(), "Pause").with_text_color(Color::red());
+  let mut pause_button = ButtonWidget::new(font.clone(), "Pause");
   let mut step_button = ButtonWidget::new(font.clone(), "Step");
   let mut draw_mode_button = ButtonWidget::new(font.clone(), "Toggle draw mode");
 
@@ -70,6 +76,7 @@ fn main() {
   let mut size_5_button = ButtonWidget::new(font.clone(), "Size 5");
   let mut size_10_button = ButtonWidget::new(font.clone(), "Size 10");
   let mut size_20_button = ButtonWidget::new(font.clone(), "Size 20");
+  let mut size_50_button = ButtonWidget::new(font.clone(), "Size 50");
 
   // TODO: get rid of this hack
   let mut gap0 = EmptyWidget::new(Vec2::zero());
@@ -96,6 +103,8 @@ fn main() {
   let mut brush_size = 10;
 
   let mut draw_temp = false;
+
+  let mut old_mouse_pos = None;
 
   while !window.glfw_window.should_close() {
     fps_logger.update();
@@ -130,13 +139,14 @@ fn main() {
         (LWidget(&mut size_5_button), 0.0),
         (LWidget(&mut size_10_button), 0.0),
         (LWidget(&mut size_20_button), 0.0),
+        (LWidget(&mut size_50_button), 0.0),
         (LWidget(&mut gap3), 1.0),
       ].into_iter());
 
       window.draw_gui(
         HPanel(Leading, 0, vec![
           (LWidget(&mut world), 0.0),
-          (VPanel(Leading, 5, controls), 1.0),
+          (VPanel(Leading, 0, controls), 1.0),
         ]),
         &mut glfw, Color::white());
     }
@@ -191,6 +201,9 @@ fn main() {
     }
     if size_20_button.was_pressed() {
       brush_size = 20;
+    }
+    if size_50_button.was_pressed() {
+      brush_size = 50;
     }
 
     for event in window.get_events().into_iter() {
@@ -250,6 +263,9 @@ fn main() {
             _ => ()
           }
         },
+        Event::CursorLeave => {
+          old_mouse_pos = None;
+        },
         _ => ()
       }
     }
@@ -257,12 +273,15 @@ fn main() {
       match event {
         // TODO: make this work when holding the mouse button down
         Event::MouseButton(glfw::MouseButton::Button1, Action::Press, _, pos) => {
-          let pos = pos/cell_size;
-          for point in brush.get_points(brush_size, pos).into_iter() {
-            if world.grid.in_range(point) {
-              world.grid[point].typ = cur_cell_type;
-            }
-          }
+          let old_mouse_pos2 = match old_mouse_pos {
+            None => pos/cell_size,
+            Some(pos) => pos
+          };
+          brush.draw(brush_size, pos/cell_size, old_mouse_pos2, cur_cell_type, &mut world);
+          old_mouse_pos = Some(pos/cell_size);
+        },
+        Event::MouseButton(glfw::MouseButton::Button1, Action::Release, _, pos) => {
+          old_mouse_pos = None;
         },
         // TODO: remove this hack
         Event::MouseButton(glfw::MouseButton::Button2, Action::Press, _, pos) => {
@@ -274,15 +293,19 @@ fn main() {
           }
         },
         Event::MouseMove(pos, ref buttons) if buttons.contains(&glfw::MouseButton::Button1) => {
-          let pos = pos/cell_size;
-          for point in brush.get_points(brush_size, pos).into_iter() {
-            if world.grid.in_range(point) {
-              world.grid[point].typ = cur_cell_type;
-            }
-          }
+          let old_mouse_pos2 = match old_mouse_pos {
+            None => pos/cell_size,
+            Some(pos) => pos
+          };
+          brush.draw(brush_size, pos/cell_size, old_mouse_pos2, cur_cell_type, &mut world);
+          old_mouse_pos = Some(pos/cell_size);
         },
         _ => ()
       }
+    }
+
+    if old_mouse_pos.is_some() {
+      brush.draw(brush_size, old_mouse_pos.unwrap(), old_mouse_pos.unwrap(), cur_cell_type, &mut world);
     }
 
     // We have to do this instead of glfwSwapInterval b/c that function does busy waiting on some platforms, using 100% of a cpu core for no good reason
@@ -299,7 +322,50 @@ pub enum Brush {
   Diamond,
 }
 
+
+pub fn line(start: Vec2<i32>, end: Vec2<i32>) -> Vec<Vec2<i32>> {
+  let mut x0 = start.x;
+  let mut y0 = start.y;
+  let x1 = end.x;
+  let y1 = end.y;
+  let dx = (x1-x0).abs();
+  let dy = (y1-y0).abs();
+  let sx = if x0 < x1 {1} else {-1};
+  let sy = if y0 < y1 {1} else {-1};
+  let mut err = dx - dy;
+
+  let mut points = Vec::new();
+  loop {
+    points.push(Vec2(x0,y0));
+    if x0 == x1 && y0 == y1 {return points;}
+    let e2 = 2*err;
+    if e2 > -dy {
+      err -= dy;
+      x0 += sx;
+    }
+    if x0 == x1 && y0 == y1 {
+      points.push(Vec2(x0,y0));
+      return points;
+    }
+    if e2 < dx {
+      err += dx;
+      y0 += sy;
+    }
+  }
+}
+
+
 impl Brush {
+  pub fn draw(self, brush_size: i32, pos_1: Vec2<i32>, pos_2: Vec2<i32>, cell_type: CellType, world: &mut World) {
+    for pos in line(pos_1, pos_2) {
+      for point in self.get_points(brush_size, pos).into_iter() {
+        if world.grid.in_range(point) {
+          world.grid[point].typ = cell_type;
+        }
+      }
+    }
+  }
+
   // TODO: performance
   pub fn get_points(self, diameter: i32, center: Vec2<i32>) -> Vec<Vec2<i32>> {
     match self {
@@ -352,4 +418,3 @@ impl Brush {
     }
   }
 }
-
