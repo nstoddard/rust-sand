@@ -2,9 +2,10 @@
   Bugs:
     When placing cells near the bottom of the screen, the cells are a few units lower than they should be.
       This happens because the window is larger than expected - the large number of interface buttons expands the window beyond the world widget's minimum size, so the widget scales but mouse clicks don't.
+    When holding the mouse, moving over to the GUI elements on the right, and releasing the mouse, cells are still placed
 */
 
-#![feature(optin_builtin_traits, core, path, link_args)]
+#![feature(optin_builtin_traits, core, link_args, convert)]
 
 #![allow(dead_code, unused_imports, non_upper_case_globals, unused_unsafe, unused_variables, unused_mut)]
 
@@ -21,11 +22,11 @@ extern crate gui;
 use std::iter::*;
 use rand::Rng;
 use std::cmp;
-use std::num::*;
+use std::path::Path;
 
 use timer::*;
 use vecmat::*;
-use vecmat::num::*;
+use vecmat::num_ext::*;
 
 use gui::color::*;
 use gui::gui::*;
@@ -48,7 +49,7 @@ const dt: f64 = 1.0 / fps as f64;
 
 
 fn main() {
-  let cell_types = vec![CellType::Empty, CellType::Solid(0), CellType::Solid(1), CellType::Granular(0, false, false), CellType::Granular(1, false, false), CellType::Granular(2, false, false), CellType::Granular(3, false, false), CellType::Fluid(0, 1.0), CellType::Fluid(1, 1.0), CellType::Fluid(2, 1.0), CellType::Fluid(3, 1.0), CellType::Fluid(4, 1.0), CellType::WaterGenerator, CellType::SandGenerator, CellType::Sink, CellType::Plant, CellType::Fire, CellType::Torch];
+  let cell_types = vec![CellType::Empty, CellType::Solid(SolidType::Wall), CellType::Solid(SolidType::Ice), CellType::Solid(SolidType::Cloud), CellType::Granular(GranularType::Sand, false, false), CellType::Granular(GranularType::Dirt, false, false), CellType::Granular(GranularType::Snow, false, false), CellType::Granular(GranularType::Nitro, false, false), CellType::Fluid(FluidType::Water, 1.0), CellType::Fluid(FluidType::Oil, 1.0), CellType::Fluid(FluidType::Methane, 1.0), CellType::Fluid(FluidType::Steam, 1.0), CellType::Fluid(FluidType::Cement, 1.0), CellType::WaterGenerator, CellType::SandGenerator, CellType::Sink, CellType::Plant, CellType::Fire, CellType::Torch];
 
   let world_size = Vec2(1200/cell_size, 750/cell_size);
   // println!("{}", world_size);
@@ -61,7 +62,7 @@ fn main() {
   let mut window = GUIWindow::new(&mut glfw, window_mode, &resource_path);
   let font = window.load_font(&(resource_path.join("DejaVuSans.ttf")), 16);
 
-  let mut fps_logger = FPSLogger::new(5.0);
+  let mut fps_logger = FPSLogger::new(1.0);
 
   let mut quit_button = ButtonWidget::new(font.clone(), "Quit");
   let mut pause_button = ButtonWidget::new(font.clone(), "Pause");
@@ -241,10 +242,10 @@ fn main() {
             },
             glfw::Key::W => {
               let mut total_water = 0.0;
-              for y in range(0, world.grid.size.y) {
-                for x in range(0, world.grid.size.x) {
+              for y in 0..world.grid.size.y {
+                for x in 0..world.grid.size.x {
                   match world.grid[Vec2(x,y)].typ {
-                    CellType::Fluid(0, amount) => total_water += amount,
+                    CellType::Fluid(FluidType::Water, amount) => total_water += amount,
                     _ => ()
                   }
                 }
@@ -253,8 +254,8 @@ fn main() {
             },
             glfw::Key::F => {
               let mut total_heat = 0.0;
-              for y in range(0, world.grid.size.y) {
-                for x in range(0, world.grid.size.x) {
+              for y in 0..world.grid.size.y {
+                for x in 0..world.grid.size.x {
                   total_heat += world.grid[Vec2(x,y)].heat;
                 }
               }
@@ -309,8 +310,8 @@ fn main() {
     }
 
     // We have to do this instead of glfwSwapInterval b/c that function does busy waiting on some platforms, using 100% of a cpu core for no good reason
-    timer.sleep_until(dt);
-    timer.add_time(-dt);
+    /*timer.sleep_until(dt);
+    timer.add_time(-dt);*/
   }
 }
 

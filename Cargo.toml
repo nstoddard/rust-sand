@@ -7,7 +7,7 @@ authors = ["Nathan Stoddard <nstodda@purdue.edu>"]
 name = "rustsand"
 
 [dependencies.glfw]
-git = "https://github.com/bjz/glfw-rs"
+git = "https://github.com/nstoddard/glfw-rs"
 default-features = false
 
 [dependencies.image]
