@@ -49,7 +49,7 @@ const dt: f64 = 1.0 / fps as f64;
 
 
 fn main() {
-  let cell_types = vec![CellType::Empty, CellType::Solid(SolidType::Wall), CellType::Solid(SolidType::Ice), CellType::Solid(SolidType::Cloud), CellType::Granular(GranularType::Sand, false, false), CellType::Granular(GranularType::Dirt, false, false), CellType::Granular(GranularType::Snow, false, false), CellType::Granular(GranularType::Nitro, false, false), CellType::Fluid(FluidType::Water, 1.0), CellType::Fluid(FluidType::Oil, 1.0), CellType::Fluid(FluidType::Methane, 1.0), CellType::Fluid(FluidType::Steam, 1.0), CellType::Fluid(FluidType::Cement, 1.0), CellType::WaterGenerator, CellType::SandGenerator, CellType::Sink, CellType::Plant, CellType::Fire, CellType::Torch];
+  let cell_types = vec![CellType::Empty, CellType::Solid(SolidType::Wall), CellType::Solid(SolidType::Ice), CellType::Granular(GranularType::Sand, false, false), CellType::Granular(GranularType::Dirt, false, false), CellType::Granular(GranularType::Snow, false, false), CellType::Granular(GranularType::Nitro, false, false), CellType::Fluid(FluidType::Water, 1.0), CellType::Fluid(FluidType::Oil, 1.0), CellType::Fluid(FluidType::Methane, 1.0), CellType::Fluid(FluidType::Steam, 1.0), CellType::Fluid(FluidType::Cement, 1.0), CellType::WaterGenerator, CellType::SandGenerator, CellType::Sink, CellType::Plant, CellType::Fire, CellType::Torch];
 
   let world_size = Vec2(1200/cell_size, 750/cell_size);
   // println!("{}", world_size);
@@ -310,8 +310,8 @@ fn main() {
     }
 
     // We have to do this instead of glfwSwapInterval b/c that function does busy waiting on some platforms, using 100% of a cpu core for no good reason
-    /*timer.sleep_until(dt);
-    timer.add_time(-dt);*/
+    timer.sleep_until(dt);
+    timer.add_time(-dt);
   }
 }
 

@@ -15,7 +15,7 @@ use gui::gui::*;
 use gui::new_gl_program::*;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SolidType {Wall, Ice, Cloud}
+pub enum SolidType {Wall, Ice}
 
 #[derive(Copy, Clone)]
 pub struct Solid {
@@ -238,15 +238,28 @@ impl Cell {
           return;
         }
       },
-      CellType::Fluid(FluidType::Steam, amount) if /*amount >= 1.0 &&*/ grid.in_range(pos+up) => {
-        let allow = match grid[pos+up].typ {
-          CellType::Empty => false,
-          CellType::Fluid(FluidType::Steam, _) => false,
-          _ => true
-        };
-        if rng.gen::<f64>() < 0.003 || allow {
-          grid[pos].typ = CellType::Solid(SolidType::Cloud);
-          return;
+      CellType::Fluid(FluidType::Steam, amount) => {
+        let mut neighbor = pos;
+        let rand = rng.gen::<f64>();
+        if rand < 0.25 {
+          neighbor = neighbor + Vec2(1,0)
+        } else if rand < 0.5 {
+          neighbor = neighbor + Vec2(-1,0)
+        } else if rand < 0.75 {
+          neighbor = neighbor + Vec2(0,1)
+        } else {
+          neighbor = neighbor + Vec2(0,-1)
+        }
+        if grid.in_range(neighbor) {
+          match grid[neighbor].typ {
+            CellType::Solid(SolidType::Ice) => {
+              if rng.gen::<f64>() < 0.02 {
+                grid[neighbor].typ = CellType::Fluid(FluidType::Water, 1.0);
+                grid[pos].typ = CellType::Fluid(FluidType::Water, amount);
+              }
+            },
+            _ => (),
+          }
         }
       },
       _ => ()
@@ -345,12 +358,13 @@ impl Cell {
           match grid[neighbor].typ {
             CellType::Plant => grid[neighbor].typ = CellType::Fire,
             CellType::Fluid(FluidType::Oil, amount) => grid[neighbor].typ = CellType::Fire,
+            CellType::Fluid(FluidType::Methane, amount) => grid[neighbor].typ = CellType::Fire,
             CellType::Fluid(FluidType::Water, amount) => grid[neighbor].typ = CellType::Fluid(FluidType::Steam, amount),
+            CellType::Solid(SolidType::Ice) => grid[neighbor].typ = CellType::Fluid(FluidType::Steam, 1.0),
             _ => (),
           }
         }
       },
-
       CellType::Fluid(id, mut amount) => {
         let typ = grid.fluid[&id];
         let up = typ.up_dir;
@@ -573,11 +587,6 @@ impl World {
         typ: SolidType::Ice,
         name: "ice",
         color: Color::white().blend(background_color(), 0.65),
-      },
-      Solid{
-        typ: SolidType::Cloud,
-        name: "cloud",
-        color: Color::white()*0.95,
       },
     ];
     // TODO: move these to a config file
