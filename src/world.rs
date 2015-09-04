@@ -1,18 +1,42 @@
+extern crate glium;
+
+use num::*;
+
 use std::ops::{Index, IndexMut};
 use rand::Rng;
-use std::iter::*;
+use std::iter::repeat;
 use std::collections::*;
+use std::borrow::Cow;
+// use std::num::One;
+// use std::ops::{Add, Range};
 
 use vecmat::*;
-use vecmat::num_ext::*;
+// use vecmat::num_ext::*;
 
-use gui::color::*;
-use gui::texture::*;
-use gui::mesh::*;
-use gui::opengl::*;
-use gui::util::*;
-use gui::gui::*;
-use gui::new_gl_program::*;
+use glium::{texture, index};
+use glium::texture::*;
+use glium::backend::Facade;
+use glium::uniforms::*;
+use glium::draw_parameters::*;
+use glium::Surface;
+
+
+use glium_gui::color::*;
+// use glium_gui::texture::*;
+// use glium_gui::mesh::*;
+// use glium_gui::opengl::*;
+use glium_gui::util::*;
+// use glium_gui::gui::*;
+// use glium_gui::new_gl_program::*;
+use glium_gui::widgets::*;
+use glium_gui::window::*;
+
+
+/*// TODO: handle case where `stop` is highest possible value
+pub fn range_inclusive<A>(start: A, stop: A) -> Range<A> where A: Step + One + Clone + Add<Output = A> {
+  start..(stop + A::one())
+}*/
+
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SolidType {Wall, Ice}
@@ -21,7 +45,7 @@ pub enum SolidType {Wall, Ice}
 pub struct Solid {
   typ: SolidType,
   name: &'static str,
-  color: Color<f32>,
+  color: Color3,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -37,7 +61,7 @@ pub struct Granular {
   spread_speed: f64,
   // TODO: support fall_speed < 1.0
   fall_speed: f64, //0.0-2.0
-  color: Color<f32>,
+  color: Color3,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -51,7 +75,7 @@ pub struct Fluid {
   horizontal_spread: f64, //0.0-1.0
   fall_speed: f64, //0.0-2.0
   compressibility: f64,
-  color: Color<f32>,
+  color: Color3,
   density: f64,
   // Used to determine whether the fluid falls or rises
   // If down_dir=up and vice versa, it's considered ligher than air
@@ -75,12 +99,18 @@ pub enum CellType {
   Fire,
   Torch,
   ExplodingNitro(Vec2<i32>),
+  LifeOn,
+  LifeTurningOn,
+  Wire,
+  ElectronHead,
+  ElectronTail,
 }
 
 #[derive(Copy, Clone)]
 pub struct Cell {
   pub typ: CellType,
   // pub temp: f64,
+  // TODO: get rid of this
   pub heat: f64,
 }
 
@@ -99,8 +129,8 @@ fn stable_state(total_mass: f64, compressibility: f64) -> f64 {
   }
 }
 
-fn background_color() -> Color<f32> {
-  Color::rgb(95.0/255.0, 188.0/255.0, 223.0/255.0)
+fn background_color() -> Color3 {
+  Color3::rgb(95.0/255.0, 188.0/255.0, 223.0/255.0)
 }
 
 impl CellType {
@@ -117,6 +147,11 @@ impl CellType {
       CellType::Fire => "fire",
       CellType::Torch => "torch",
       CellType::ExplodingNitro(..) => "exploding nitro",
+      CellType::LifeOn => "life cell",
+      CellType::LifeTurningOn => "life cell",
+      CellType::Wire => "wire",
+      CellType::ElectronHead => "electron head",
+      CellType::ElectronTail => "electron tail",
     }
   }
 
@@ -143,20 +178,25 @@ impl CellType {
 }
 
 impl Cell {
-  pub fn color(self, grid: &Grid) -> Color<f32> {
+  pub fn color(self, grid: &Grid) -> Color3 {
     match self.typ {
       CellType::Empty => background_color(),
-      // CellType::Wall => Color::rgb(0.5, 0.5, 0.5),
+      // CellType::Wall => Color3::rgb(0.5, 0.5, 0.5),
       CellType::Solid(typ) => grid.solid[&typ].color,
       CellType::Granular(typ, _, _) => grid.granular[&typ].color,
       CellType::Fluid(typ, amount) => grid.fluid[&typ].color.blend(background_color(), (amount as f32/1.0).min(1.0).max(0.5)),
-      CellType::WaterGenerator => Color::rgb(0.0, 0.5, 1.0),
-      CellType::SandGenerator => Color::rgb(0.9, 0.5, 0.2),
-      CellType::Sink => Color::black(),
-      CellType::Plant => Color::green()*0.6,
-      CellType::Fire => Color::rgb(1.0, 0.325, 0.0),
-      CellType::Torch => Color::rgb(1.0, 0.1, 0.0),
-      CellType::ExplodingNitro(..) => Color::rgb(0.3, 0.5, 0.3),
+      CellType::WaterGenerator => Color3::rgb(0.0, 0.5, 1.0),
+      CellType::SandGenerator => Color3::rgb(0.9, 0.5, 0.2),
+      CellType::Sink => Color3::black(),
+      CellType::Plant => Color3::green()*0.6,
+      CellType::Fire => Color3::rgb(1.0, 0.325, 0.0),
+      CellType::Torch => Color3::rgb(1.0, 0.1, 0.0),
+      CellType::ExplodingNitro(..) => Color3::rgb(0.3, 0.5, 0.3),
+      CellType::LifeOn => Color3::rgb(1.0, 1.0, 1.0),
+      CellType::LifeTurningOn => Color3::rgb(0.8, 0.8, 0.8),
+      CellType::Wire => Color3::rgb(0.8, 0.4, 0.0),
+      CellType::ElectronHead => Color3::rgb(1.0, 1.0, 0.5),
+      CellType::ElectronTail => Color3::rgb(0.5, 0.2, 1.0),
     }
   }
 
@@ -169,8 +209,8 @@ impl Cell {
     if amount == 0.0 {0.0} else {self.typ.heat_cap(grid) * self.heat / amount}
   }
 
-  fn temp_color(self, grid: &Grid) -> Color<f32> {
-    Color::red().blend(Color::blue(), self.temp(grid) as f32 / 200.0)
+  fn temp_color(self, grid: &Grid) -> Color3 {
+    Color3::red().blend(Color3::blue(), self.temp(grid) as f32 / 200.0)
   }
 
   // TODO: fix this hack
@@ -317,6 +357,62 @@ impl Cell {
           grid[pos+up].typ = CellType::Empty;
         }
       },
+      CellType::Empty => {
+        let mut neighbors = 0;
+        let mut some_life = false;
+        let mut some_nonlife = false;
+        for neighbor in grid.moore(pos) {
+          if neighbor.typ != CellType::LifeTurningOn && neighbor.typ != CellType::Empty {
+            if neighbor.typ == CellType::LifeOn {
+              some_life = true;
+            } else {
+              some_nonlife = true;
+            }
+            neighbors += 1;
+          }
+        }
+        if (some_life && (neighbors == 3 || neighbors == 5 || neighbors == 6)) || (some_life && some_nonlife && neighbors >= 4 && neighbors <= 4) {
+          grid[pos].typ = CellType::LifeTurningOn;
+        }
+      }
+      CellType::LifeOn => {
+        let mut neighbors = 0;
+        let mut some_life = false;
+        let mut some_nonlife = false;
+        for neighbor in grid.moore(pos) {
+          if neighbor.typ != CellType::LifeTurningOn && neighbor.typ != CellType::Empty {
+            if neighbor.typ == CellType::LifeOn {
+              some_life = true;
+            } else {
+              some_nonlife = true;
+            }
+            neighbors += 1;
+          }
+        }
+        if (!some_life || (neighbors != 2 && neighbors != 3)) && (!some_life || !some_nonlife || neighbors < 4 || neighbors > 4) {
+          grid[pos].typ = CellType::Empty;
+        }
+      }
+      CellType::Wire => {
+        let mut neighbors = 0;
+        for neighbor in grid.moore(pos) {
+          if neighbor.typ == CellType::ElectronHead {
+            neighbors += 1;
+          }
+          if neighbors == 1 || neighbors == 2 {
+            grid[pos].typ = CellType::ElectronHead;
+          }
+        }
+      }
+      CellType::ElectronHead => {
+        grid[pos].typ = CellType::ElectronTail;
+      }
+      CellType::ElectronTail => {
+        grid[pos].typ = CellType::Wire;
+      }
+      CellType::LifeTurningOn => {
+        grid[pos].typ = CellType::LifeOn;
+      }
       CellType::Plant => {
         let mut neighbor = pos;
         let rand = rng.gen::<f64>();
@@ -523,15 +619,24 @@ const right_: Vec2<i32> = Vec2{x: 1, y: 0};
 
 pub struct World {
   id: Id,
-  mesh: NewMesh<UnlitProgram>,
-  texture: Texture,
+  mesh: glium::VertexBuffer<UnlitVertex>,//NewMesh<UnlitProgram>,
+  texture: texture::Texture2d,//Texture,
   coords: Vec<Vec2<i32>>,
   pub grid: Grid,
-  pixels: Vec<u8>,
+  // pixels: Vec<Vec<(u8,u8,u8)>>, //Vec<u8>,
+  pixels: Vec<(u8,u8,u8)>,
+  unlit_program: glium::Program,
 }
 
+#[derive(Copy, Clone)]
+pub struct UnlitVertex {
+  pub pos: Vec2<f32>,
+  pub texcoord: Vec2<f32>,
+}
+implement_vertex!(UnlitVertex, pos, texcoord);
+
 impl World {
-  pub fn new<R: Rng>(size: Vec2<i32>, window: &GUIWindow, rng: &mut R) -> World {
+  pub fn new<R: Rng>(size: Vec2<i32>, window: &Window, rng: &mut R) -> World {
     let mut cells = Vec::new();
     let mut updated = Vec::new();
     for y in 0..size.y {
@@ -540,9 +645,26 @@ impl World {
       cells.push(row);
       updated.push(updated_row);
     }
-    let mut mesh = NewMesh::new(window.unlit_program.clone(), Primitive::Triangles, MeshUsage::DynamicDraw);
+    let mesh = glium::VertexBuffer::new(window, &vec![
+      UnlitVertex{pos: Vec2(0.0, 0.0),
+        texcoord: Vec2(0.0, 0.0)},
+      UnlitVertex{pos: Vec2(size.x as f32, 0.0),
+        texcoord: Vec2(1.0, 0.0)},
+      UnlitVertex{pos: Vec2(size.x as f32, size.y as f32),
+        texcoord: Vec2(1.0, 1.0)},
+      UnlitVertex{pos: Vec2(0.0, size.y as f32),
+        texcoord: Vec2(0.0, 1.0)},
+    ]).unwrap();
+
+    let unlit_program = glium::Program::from_source(window,
+      include_str!("../unlit_vert_shader.glsl"),
+      include_str!("../unlit_frag_shader.glsl"),
+      None
+    ).unwrap();
+
+    /*let mut mesh = NewMesh::new(window.unlit_program.clone(), Primitive::Triangles, MeshUsage::DynamicDraw);
     mesh.add_vertex(UnlitVertex{
-      pos: Vec2(0.0, 0.0),
+      pos: Vec2(0.0, 0.0),  
       texcoord: Vec2(0.0, 0.0),
     });
     mesh.add_vertex(UnlitVertex{
@@ -558,11 +680,13 @@ impl World {
       texcoord: Vec2(0.0, 1.0),
     });
     mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(2, 3, 0);
+    mesh.add_triangle(2, 3, 0);*/
 
-    let texture = Texture::texture2d_empty(size.x*cell_size, size.y*cell_size, gl::RGB8,
-      MinNearest, MagNearest);
-    let pixels = Vec::with_capacity((size.x*size.y*3) as usize);
+    /*let texture = Texture::texture2d_empty(size.x*cell_size, size.y*cell_size, gl::RGB8,
+      MinNearest, MagNearest);*/
+    let texture = texture::Texture2d::empty_with_format(window, texture::UncompressedFloatFormat::U8U8U8, MipmapsOption::NoMipmap, (size.x*cell_size) as u32, (size.y*cell_size) as u32).unwrap();
+
+    let pixels = Vec::new();//Vec::with_capacity((size.x*size.y*3) as usize);
 
     // We use a pre-shuffled list of coordinates to get rid of some poblems
     // in the simulation. Without it, some materials would prefer to move
@@ -575,18 +699,18 @@ impl World {
         coords.push(Vec2(x,y));
       }
     }
-    rng.shuffle(coords.as_mut_slice());
+    rng.shuffle(&mut coords);
 
     let solid = vec![
       Solid{
         typ: SolidType::Wall,
         name: "wall",
-        color: Color::rgb(0.5, 0.5, 0.5),
+        color: Color3::rgb(0.5, 0.5, 0.5),
       },
       Solid{
         typ: SolidType::Ice,
         name: "ice",
-        color: Color::white().blend(background_color(), 0.65),
+        color: Color3::white().blend(background_color(), 0.65),
       },
     ];
     // TODO: move these to a config file
@@ -599,7 +723,7 @@ impl World {
         horizontal_spread: 0.05,
         spread_speed: 0.8,
         fall_speed: 1.0,
-        color: Color::yellow()*0.9,
+        color: Color3::yellow()*0.9,
       },
       Granular{
         typ: GranularType::Dirt,
@@ -609,7 +733,7 @@ impl World {
         horizontal_spread: 0.05,
         spread_speed: 0.8,
         fall_speed: 1.0,
-        color: Color::rgb(0.3, 0.13, 0.0),
+        color: Color3::rgb(0.3, 0.13, 0.0),
       },
       Granular{
         typ: GranularType::Snow,
@@ -619,7 +743,7 @@ impl World {
         horizontal_spread: 0.05,
         spread_speed: 0.8,
         fall_speed: 1.0,
-        color: Color::rgb(1.0, 1.0, 1.0),
+        color: Color3::rgb(1.0, 1.0, 1.0),
       },
       Granular{
         typ: GranularType::Nitro,
@@ -629,7 +753,7 @@ impl World {
         horizontal_spread: 0.05,
         spread_speed: 0.8,
         fall_speed: 1.0,
-        color: Color::rgb(0.1, 0.4, 0.05),
+        color: Color3::rgb(0.1, 0.4, 0.05),
       },
     ];
     let fluid = vec![
@@ -639,7 +763,7 @@ impl World {
         horizontal_spread: 0.05,
         fall_speed: 1.0,
         compressibility: 0.05,
-        color: Color::rgb(0.0, 0.2, 1.0),
+        color: Color3::rgb(0.0, 0.2, 1.0),
         density: 1.0,
         down_dir: down_,
         up_dir: up_,
@@ -650,7 +774,7 @@ impl World {
         horizontal_spread: 0.05,
         fall_speed: 1.0,
         compressibility: 0.05,
-        color: Color::rgb(0.5, 0.3, 0.0),
+        color: Color3::rgb(0.5, 0.3, 0.0),
         density: 0.9,
         down_dir: down_,
         up_dir: up_,
@@ -661,7 +785,7 @@ impl World {
         horizontal_spread: 0.05,
         fall_speed: 1.0,
         compressibility: 0.05,
-        color: Color::rgb(0.15, 0.1, 0.1).blend(background_color(), 0.8),
+        color: Color3::rgb(0.15, 0.1, 0.1).blend(background_color(), 0.8),
         density: 0.5,
         down_dir: up_,
         up_dir: down_,
@@ -672,7 +796,7 @@ impl World {
         horizontal_spread: 0.05,
         fall_speed: 1.0,
         compressibility: 0.05,
-        color: Color::rgb(0.0, 0.2, 1.0).blend(Color::white(), 0.6).blend(background_color(), 0.7),
+        color: Color3::rgb(0.0, 0.2, 1.0).blend(Color3::white(), 0.6).blend(background_color(), 0.7),
         density: 0.3,
         down_dir: up_,
         up_dir: down_,
@@ -683,7 +807,7 @@ impl World {
         horizontal_spread: 0.01,
         fall_speed: 0.5, // TODO: this doesn't seem to do anything
         compressibility: 0.01,
-        color: Color::rgb(0.3, 0.3, 0.3),
+        color: Color3::rgb(0.3, 0.3, 0.3),
         density: 2.0,
         down_dir: down_,
         up_dir: up_,
@@ -694,7 +818,7 @@ impl World {
     let fluid: HashMap<FluidType, Fluid> = fluid.into_iter().map(|x| (x.typ, x)).collect();
 
     let grid = Grid{cells: cells, updated: updated, size: size, solid: solid, granular: granular, fluid: fluid};
-    World{grid: grid, mesh: mesh, texture: texture, coords: coords, pixels: pixels, id: next_id()}
+    World{grid: grid, mesh: mesh, texture: texture, coords: coords, pixels: pixels, id: Id::new(), unlit_program: unlit_program}
   }
 
   pub fn simulate<R: Rng>(&mut self, rng: &mut R) {
@@ -738,7 +862,8 @@ impl World {
     }
   }
 
-  pub fn update_mesh(&mut self, draw_temp: bool) {
+  pub fn update_mesh(&mut self, window: &Window, draw_temp: bool) {
+    // TODO: with this here, why not just alloc pixels here?
     self.pixels.clear();
 
     let mut pixels = Vec::new();
@@ -759,35 +884,63 @@ impl World {
     for y in 0..self.grid.size.y as usize {
       let ref row = pixels[y];
       for _ in 0..cell_size {
+        // let mut out_row = Vec::new();
         for x in 0..self.grid.size.x as usize {
           let r = row[x*3+0];
           let g = row[x*3+1];
           let b = row[x*3+2];
           for _ in 0..cell_size {
-            self.pixels.push(r);
+            /*self.pixels.push(r);
             self.pixels.push(g);
-            self.pixels.push(b);
+            self.pixels.push(b);*/
+            // out_row.push((r,g,b));
+            self.pixels.push((r,g,b));
           }
         }
+        // self.pixels.push(out_row);
       }
     }
-    self.texture.update_texture2d_from_pixels(&self.pixels);
+
+    // TODO: can I avoid the clone?
+    let raw = RawImage2d{
+      data: Cow::Borrowed(&self.pixels),
+      width: (self.grid.size.x*cell_size) as u32,
+      height: (self.grid.size.y*cell_size) as u32,
+      format: ClientFormat::U8U8U8
+    };
+    self.texture.write(glium::Rect{left: 0, width: (self.grid.size.x*cell_size) as u32,
+      bottom: 0, height: (self.grid.size.y*cell_size) as u32}, raw);
+    // self.texture = texture::Texture2d::with_mipmaps(window, raw, false);
+
+    // self.texture.update_texture2d_from_pixels(&self.pixels);
   }
 }
 
 impl Widget for World {
-  fn id(&self) -> Id {self.id}
-  fn draw(&mut self, pos: Vec2<i32>, size: Vec2<i32>, window: &mut GUIWindow) {
-    self.mesh.draw(UnlitUniforms{
+  fn id(&self) -> &Id {&self.id}
+  fn draw(&mut self, pos: Vec2<i32>, size: Vec2<i32>, facade: &DrawContext, frame: &mut DrawFrame) {//window: &mut Window) {
+
+    let indices = index::NoIndices(index::PrimitiveType::TriangleFan);
+    let uniforms = uniform!{
+      modelViewMatrix: Mat4::generic_ortho(
+      Vec2::zero(), Vec2(self.grid.size.x as f32, self.grid.size.y as f32),
+      Vec2::<f32>::gen_from(pos), Vec2::<f32>::gen_from(pos+size)),
+      projMatrix: Mat4::ortho_flip(frame.width() as f32, frame.height() as f32), // TODO //window.window_size.x as f32, window.window_size.y as f32),
+      tex: Sampler::new(&self.texture), // TODO: filters
+    };
+    // println!("Drawing world; {} {}", frame.width(), frame.height());
+    frame.draw(&self.mesh, &indices, &self.unlit_program, &uniforms, &default_draw_params/*, None*/);
+
+    /*self.mesh.draw(UnlitUniforms{
       model_view_matrix: Mat4::generic_ortho(
       Vec2::zero(), Vec2(self.grid.size.x as f32, self.grid.size.y as f32),
-      Vec2::<f32>::from(pos), Vec2::<f32>::from(pos+size)),
+      Vec2::<f32>::gen_from(pos), Vec2::<f32>::gen_from(pos+size)),
       proj_matrix: Mat4::ortho_flip(window.window_size.x as f32, window.window_size.y as f32),
       tex: &self.texture,
-    });
+    });*/
   }
 
-  fn min_size(&self, window: &mut GUIWindow) -> Vec2<i32> {
+  fn min_size(&self, facade: &DrawContext) -> Vec2<i32> {
     self.grid.size * cell_size
   }
 }
@@ -820,6 +973,18 @@ impl Grid {
 
   pub fn in_range(&self, pos: Vec2<i32>) -> bool {
     pos.x >= 0 && pos.y >= 0 && pos.x < self.size.x && pos.y < self.size.y
+  }
+
+  pub fn moore(&self, pos: Vec2<i32>) -> Vec<Cell> {
+    let mut res = Vec::new();
+    for x in (pos.x-1)..(pos.x+2) {
+      for y in (pos.y-1)..(pos.y+2) {
+        if (x != pos.x || y != pos.y) && self.in_range(Vec2(x, y)) {
+          res.push(self[Vec2(x, y)]);
+        }
+      }
+    }
+    res
   }
 }
 

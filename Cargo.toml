@@ -6,8 +6,13 @@ authors = ["Nathan Stoddard <nstodda@purdue.edu>"]
 [[bin]]
 name = "rustsand"
 
+[dependencies]
+num = "*"
+rand = "*"
+
 [dependencies.glfw]
-git = "https://github.com/nstoddard/glfw-rs"
+# git = "https://github.com/nstoddard/glfw-rs"
+path = "C:/Users/Nathan/Desktop/code/libs/glfw-rs"
 default-features = false
 
 [dependencies.image]
@@ -16,19 +21,15 @@ git = "https://github.com/PistonDevelopers/rust-image"
 [dependencies.freetype-rs]
 git = "https://github.com/PistonDevelopers/freetype-rs"
 
-[dependencies.gl]
-git = "https://github.com/bjz/gl-rs"
-
 [dependencies.vecmat]
 git = "https://github.com/nstoddard/vecmat"
 
 [dependencies.timer]
 git = "https://github.com/nstoddard/timer"
 
-[dependencies.gui]
-path = "../../released-libs/gui-rs"
+[dependencies.glium-gui]
+path = "C:/Users/Nathan/Desktop/code/libs/glium-gui"
 
-# git = "https://github.com/nstoddard/gui-rs"
-
-[dependencies]
-rand = "*"
+[dependencies.glium]
+git = "https://github.com/tomaka/glium"
+default-features = false

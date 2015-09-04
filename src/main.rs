@@ -5,8 +5,6 @@
     When holding the mouse, moving over to the GUI elements on the right, and releasing the mouse, cells are still placed
 */
 
-#![feature(optin_builtin_traits, core, link_args, convert)]
-
 #![allow(dead_code, unused_imports, non_upper_case_globals, unused_unsafe, unused_variables, unused_mut)]
 
 
@@ -14,29 +12,30 @@ extern crate glfw;
 extern crate freetype;
 extern crate image;
 extern crate rand;
+extern crate num;
 
 extern crate vecmat;
 extern crate timer;
-extern crate gui;
+#[macro_use] extern crate glium;
+extern crate glium_gui;
 
-use std::iter::*;
+use num::*;
+
+// use std::iter::*;
 use rand::Rng;
 use std::cmp;
 use std::path::Path;
 
 use timer::*;
 use vecmat::*;
-use vecmat::num_ext::*;
+// use vecmat::num_ext::*;
 
-use gui::color::*;
-use gui::gui::*;
-use gui::renderer::*;
-use gui::mesh::*;
-use gui::gl_program::*;
-use gui::texture::*;
-use gui::util::*;
-use gui::opengl::*;
-use gui::widgets::*;
+use glium_gui::color::*;
+use glium_gui::util::*;
+use glium_gui::widgets::*;
+use glium_gui::window::*;
+use glium_gui::event::*;
+use glium_gui::text::*;
 
 mod world;
 
@@ -49,35 +48,57 @@ const dt: f64 = 1.0 / fps as f64;
 
 
 fn main() {
-  let cell_types = vec![CellType::Empty, CellType::Solid(SolidType::Wall), CellType::Solid(SolidType::Ice), CellType::Granular(GranularType::Sand, false, false), CellType::Granular(GranularType::Dirt, false, false), CellType::Granular(GranularType::Snow, false, false), CellType::Granular(GranularType::Nitro, false, false), CellType::Fluid(FluidType::Water, 1.0), CellType::Fluid(FluidType::Oil, 1.0), CellType::Fluid(FluidType::Methane, 1.0), CellType::Fluid(FluidType::Steam, 1.0), CellType::Fluid(FluidType::Cement, 1.0), CellType::WaterGenerator, CellType::SandGenerator, CellType::Sink, CellType::Plant, CellType::Fire, CellType::Torch];
+  let cell_types = vec![CellType::Empty,
+    CellType::Solid(SolidType::Wall),
+    CellType::Solid(SolidType::Ice),
+    CellType::Granular(GranularType::Sand, false, false),
+    CellType::Granular(GranularType::Dirt, false, false),
+    CellType::Granular(GranularType::Snow, false, false),
+    CellType::Granular(GranularType::Nitro, false, false),
+    CellType::Fluid(FluidType::Water, 1.0),
+    CellType::Fluid(FluidType::Oil, 1.0),
+    CellType::Fluid(FluidType::Methane, 1.0),
+    CellType::Fluid(FluidType::Steam, 1.0),
+    CellType::Fluid(FluidType::Cement, 1.0),
+    CellType::WaterGenerator,
+    CellType::SandGenerator,
+    CellType::Sink,
+    CellType::Plant,
+    CellType::Fire,
+    CellType::Torch,
+    CellType::LifeOn,
+    CellType::Wire,
+    CellType::ElectronHead,
+    CellType::ElectronTail,
+  ];
 
   let world_size = Vec2(1200/cell_size, 750/cell_size);
   // println!("{}", world_size);
 
   let mut rng = rand::thread_rng();
 
-  let mut glfw = init_glfw();
-  let window_mode = GUIWindowMode::Windowed{title: "Falling sand game", min_size: world_size * cell_size};
+  // let mut glfw = init_glfw();
+  let window_mode = WindowMode::Windowed{title: "Falling sand game".to_string(), min_size: world_size * cell_size};
   let resource_path = Path::new("resources");
-  let mut window = GUIWindow::new(&mut glfw, window_mode, &resource_path);
-  let font = window.load_font(&(resource_path.join("DejaVuSans.ttf")), 16);
+  let mut window = Window::new(window_mode/*, &resource_path*/);
+  let font = Font::new(&(resource_path.join("DejaVuSans.ttf")), 16, &window);
 
   let mut fps_logger = FPSLogger::new(1.0);
 
-  let mut quit_button = ButtonWidget::new(font.clone(), "Quit");
-  let mut pause_button = ButtonWidget::new(font.clone(), "Pause");
-  let mut step_button = ButtonWidget::new(font.clone(), "Step");
-  let mut draw_mode_button = ButtonWidget::new(font.clone(), "Toggle draw mode");
+  let mut quit_button = Button::new(font.clone(), "Quit");
+  let mut pause_button = Button::new(font.clone(), "Pause");
+  let mut step_button = Button::new(font.clone(), "Step");
+  let mut draw_mode_button = Button::new(font.clone(), "Toggle draw mode");
 
-  let mut circle_button = ButtonWidget::new(font.clone(), "Circle");
-  let mut square_button = ButtonWidget::new(font.clone(), "Square");
-  let mut diamond_button = ButtonWidget::new(font.clone(), "Diamond");
-  let mut size_1_button = ButtonWidget::new(font.clone(), "Size 1");
-  let mut size_2_button = ButtonWidget::new(font.clone(), "Size 2");
-  let mut size_5_button = ButtonWidget::new(font.clone(), "Size 5");
-  let mut size_10_button = ButtonWidget::new(font.clone(), "Size 10");
-  let mut size_20_button = ButtonWidget::new(font.clone(), "Size 20");
-  let mut size_50_button = ButtonWidget::new(font.clone(), "Size 50");
+  let mut circle_button = Button::new(font.clone(), "Circle");
+  let mut square_button = Button::new(font.clone(), "Square");
+  let mut diamond_button = Button::new(font.clone(), "Diamond");
+  let mut size_1_button = Button::new(font.clone(), "Size 1");
+  let mut size_2_button = Button::new(font.clone(), "Size 2");
+  let mut size_5_button = Button::new(font.clone(), "Size 5").with_text_color(Color4::red());
+  let mut size_10_button = Button::new(font.clone(), "Size 10");
+  let mut size_20_button = Button::new(font.clone(), "Size 20");
+  let mut size_50_button = Button::new(font.clone(), "Size 50");
 
   // TODO: get rid of this hack
   let mut gap0 = EmptyWidget::new(Vec2::zero());
@@ -94,7 +115,7 @@ fn main() {
 
   let mut cell_type_widgets = Vec::new();
   for typ in cell_types.iter() {
-    cell_type_widgets.push(ButtonWidget::new(font.clone(), typ.name(&world.grid)));
+    cell_type_widgets.push(Button::new(font.clone(), typ.name(&world.grid)));
   }
 
   let mut cur_cell_type_index = 3;
@@ -107,15 +128,15 @@ fn main() {
 
   let mut old_mouse_pos = None;
 
-  while !window.glfw_window.should_close() {
+  while !window.should_close() {
     fps_logger.update();
-    check_gl_error("game loop");
+    // check_gl_error("game loop");
 
 
     if !paused {
       world.simulate(&mut rng);
     }
-    world.update_mesh(draw_temp);
+    world.update_mesh(&window, draw_temp);
 
     {
       let mut controls = vec![
@@ -145,11 +166,11 @@ fn main() {
       ].into_iter());
 
       window.draw_gui(
-        HPanel(Leading, 0, vec![
+        Row(Leading, 0, vec![
           (LWidget(&mut world), 0.0),
-          (VPanel(Leading, 0, controls), 1.0),
+          (Col(Leading, 0, controls), 1.0),
         ]),
-        &mut glfw, Color::white());
+        /*&mut glfw, */Color3::white());
     }
 
     for (i, widget) in cell_type_widgets.iter_mut().enumerate() {
@@ -160,7 +181,8 @@ fn main() {
     }
 
     if quit_button.was_pressed() {
-      window.glfw_window.set_should_close(true);
+      // TODO!
+      window.glfw_window().set_should_close(true);
     }
     if pause_button.was_pressed() {
       paused = !paused;
@@ -211,7 +233,8 @@ fn main() {
       match event {
         Event::Key(key, _, Action::Press, _) => {
           match key {
-            glfw::Key::Escape => window.glfw_window.set_should_close(true),
+            //TODO!!
+            glfw::Key::Escape => window.glfw_window().set_should_close(true),
             glfw::Key::P => {
               paused = !paused;
               if paused {
@@ -274,6 +297,7 @@ fn main() {
       match event {
         // TODO: make this work when holding the mouse button down
         Event::MouseButton(glfw::MouseButton::Button1, Action::Press, _, pos) => {
+          let pos = Vec2(pos.x as i32, pos.y as i32);
           let old_mouse_pos2 = match old_mouse_pos {
             None => pos/cell_size,
             Some(pos) => pos
@@ -286,6 +310,7 @@ fn main() {
         },
         // TODO: remove this hack
         Event::MouseButton(glfw::MouseButton::Button2, Action::Press, _, pos) => {
+          let pos = Vec2(pos.x as i32, pos.y as i32);
           let pos = pos/cell_size;
           for point in brush.get_points(brush_size, pos).into_iter() {
             if world.grid.in_range(point) {
@@ -294,6 +319,7 @@ fn main() {
           }
         },
         Event::MouseMove(pos, ref buttons) if buttons.contains(&glfw::MouseButton::Button1) => {
+          let pos = Vec2(pos.x as i32, pos.y as i32);
           let old_mouse_pos2 = match old_mouse_pos {
             None => pos/cell_size,
             Some(pos) => pos
@@ -310,8 +336,8 @@ fn main() {
     }
 
     // We have to do this instead of glfwSwapInterval b/c that function does busy waiting on some platforms, using 100% of a cpu core for no good reason
-    timer.sleep_until(dt);
-    timer.add_time(-dt);
+    /*timer.sleep_until(dt);
+    timer.add_time(-dt);*/
   }
 }
 
