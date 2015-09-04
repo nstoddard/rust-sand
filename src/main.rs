@@ -93,6 +93,7 @@ fn main() {
   let mut circle_button = Button::new(font.clone(), "Circle");
   let mut square_button = Button::new(font.clone(), "Square");
   let mut diamond_button = Button::new(font.clone(), "Diamond");
+  let mut random_button = Button::new(font.clone(), "Random");
   let mut size_1_button = Button::new(font.clone(), "Size 1");
   let mut size_2_button = Button::new(font.clone(), "Size 2");
   let mut size_5_button = Button::new(font.clone(), "Size 5").with_text_color(Color4::red());
@@ -155,6 +156,7 @@ fn main() {
         (LWidget(&mut circle_button), 0.0),
         (LWidget(&mut square_button), 0.0),
         (LWidget(&mut diamond_button), 0.0),
+        (LWidget(&mut random_button), 0.0),
         (LWidget(&mut gap2), 1.0),
         (LWidget(&mut size_1_button), 0.0),
         (LWidget(&mut size_2_button), 0.0),
@@ -209,6 +211,9 @@ fn main() {
     }
     if diamond_button.was_pressed() {
       brush = Brush::Diamond;
+    }
+    if random_button.was_pressed() {
+      brush = Brush::Random;
     }
     if size_1_button.was_pressed() {
       brush_size = 1;
@@ -302,7 +307,7 @@ fn main() {
             None => pos/cell_size,
             Some(pos) => pos
           };
-          brush.draw(brush_size, pos/cell_size, old_mouse_pos2, cur_cell_type, &mut world);
+          brush.draw(brush_size, pos/cell_size, old_mouse_pos2, cur_cell_type, &mut world, &mut rng);
           old_mouse_pos = Some(pos/cell_size);
         },
         Event::MouseButton(glfw::MouseButton::Button1, Action::Release, _, pos) => {
@@ -312,7 +317,7 @@ fn main() {
         Event::MouseButton(glfw::MouseButton::Button2, Action::Press, _, pos) => {
           let pos = Vec2(pos.x as i32, pos.y as i32);
           let pos = pos/cell_size;
-          for point in brush.get_points(brush_size, pos).into_iter() {
+          for point in brush.get_points(brush_size, pos, &mut rng).into_iter() {
             if world.grid.in_range(point) {
               world.grid[point].heat += 110.0;
             }
@@ -324,7 +329,7 @@ fn main() {
             None => pos/cell_size,
             Some(pos) => pos
           };
-          brush.draw(brush_size, pos/cell_size, old_mouse_pos2, cur_cell_type, &mut world);
+          brush.draw(brush_size, pos/cell_size, old_mouse_pos2, cur_cell_type, &mut world, &mut rng);
           old_mouse_pos = Some(pos/cell_size);
         },
         _ => ()
@@ -332,12 +337,12 @@ fn main() {
     }
 
     if old_mouse_pos.is_some() {
-      brush.draw(brush_size, old_mouse_pos.unwrap(), old_mouse_pos.unwrap(), cur_cell_type, &mut world);
+      brush.draw(brush_size, old_mouse_pos.unwrap(), old_mouse_pos.unwrap(), cur_cell_type, &mut world, &mut rng);
     }
 
     // We have to do this instead of glfwSwapInterval b/c that function does busy waiting on some platforms, using 100% of a cpu core for no good reason
-    /*timer.sleep_until(dt);
-    timer.add_time(-dt);*/
+    timer.sleep_until(dt);
+    timer.add_time(-dt);
   }
 }
 
@@ -347,6 +352,7 @@ pub enum Brush {
   Circle,
   Square,
   Diamond,
+  Random,
 }
 
 
@@ -383,9 +389,9 @@ pub fn line(start: Vec2<i32>, end: Vec2<i32>) -> Vec<Vec2<i32>> {
 
 
 impl Brush {
-  pub fn draw(self, brush_size: i32, pos_1: Vec2<i32>, pos_2: Vec2<i32>, cell_type: CellType, world: &mut World) {
+  pub fn draw<R: Rng>(self, brush_size: i32, pos_1: Vec2<i32>, pos_2: Vec2<i32>, cell_type: CellType, world: &mut World, rng: &mut R) {
     for pos in line(pos_1, pos_2) {
-      for point in self.get_points(brush_size, pos).into_iter() {
+      for point in self.get_points(brush_size, pos, rng).into_iter() {
         if world.grid.in_range(point) {
           world.grid[point].typ = cell_type;
         }
@@ -394,9 +400,9 @@ impl Brush {
   }
 
   // TODO: performance
-  pub fn get_points(self, diameter: i32, center: Vec2<i32>) -> Vec<Vec2<i32>> {
+  pub fn get_points<R: Rng>(self, diameter: i32, center: Vec2<i32>, rng: &mut R) -> Vec<Vec2<i32>> {
     match self {
-      // TODO: verify that the radius calculations are right
+      // TODO: verify that the radius calculations are right (also below)
       Brush::Circle => {
         let radius = diameter as f64*0.5;
         let radius2 = radius as i32 + 1;
@@ -436,6 +442,21 @@ impl Brush {
             let x2 = x as f64;
             let y2 = y as f64;
             if x2.abs() + y2.abs() <= radius {
+              points.push(Vec2(x,y) + center);
+            }
+          }
+        }
+        points
+      },
+      Brush::Random => {
+        let radius = diameter as f64*0.5;
+        let radius2 = radius as i32 + 1;
+        let mut points = Vec::new();
+        for y in range_inclusive(-radius2, radius2) {
+          for x in range_inclusive(-radius2, radius2) {
+            let x2 = x as f64;
+            let y2 = y as f64;
+            if x2*x2+y2*y2 <= radius*radius && rng.gen::<f64>() < 0.01 {
               points.push(Vec2(x,y) + center);
             }
           }
