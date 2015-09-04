@@ -21,15 +21,10 @@ use glium::draw_parameters::*;
 use glium::Surface;
 
 
-use glium_gui::color::*;
-// use glium_gui::texture::*;
-// use glium_gui::mesh::*;
-// use glium_gui::opengl::*;
-use glium_gui::util::*;
-// use glium_gui::gui::*;
-// use glium_gui::new_gl_program::*;
-use glium_gui::widgets::*;
-use glium_gui::window::*;
+use gui::color::*;
+use gui::util::*;
+use gui::widgets::*;
+use gui::window::*;
 
 
 /*// TODO: handle case where `stop` is highest possible value

@@ -17,7 +17,7 @@ extern crate num;
 extern crate vecmat;
 extern crate timer;
 #[macro_use] extern crate glium;
-extern crate glium_gui;
+extern crate gui;
 
 use num::*;
 
@@ -30,12 +30,12 @@ use timer::*;
 use vecmat::*;
 // use vecmat::num_ext::*;
 
-use glium_gui::color::*;
-use glium_gui::util::*;
-use glium_gui::widgets::*;
-use glium_gui::window::*;
-use glium_gui::event::*;
-use glium_gui::text::*;
+use gui::color::*;
+use gui::util::*;
+use gui::widgets::*;
+use gui::window::*;
+use gui::event::*;
+use gui::text::*;
 
 mod world;
 
@@ -90,13 +90,16 @@ fn main() {
   let mut step_button = Button::new(font.clone(), "Step");
   let mut draw_mode_button = Button::new(font.clone(), "Toggle draw mode");
 
-  let mut circle_button = Button::new(font.clone(), "Circle");
-  let mut square_button = Button::new(font.clone(), "Square");
-  let mut diamond_button = Button::new(font.clone(), "Diamond");
-  let mut random_button = Button::new(font.clone(), "Random");
+  let shape_buttons = vec![
+    (Button::new(font.clone(), "Circle"), Brush::Circle,
+    (Button::new(font.clone(), "Square"), Brush::Square,
+    (Button::new(font.clone(), "Diamond"), Brush::Diamond,
+    (Button::new(font.clone(), "Random"), Brush::Random,
+  ];
+
   let mut size_1_button = Button::new(font.clone(), "Size 1");
   let mut size_2_button = Button::new(font.clone(), "Size 2");
-  let mut size_5_button = Button::new(font.clone(), "Size 5").with_text_color(Color4::red());
+  let mut size_5_button = Button::new(font.clone(), "Size 5");
   let mut size_10_button = Button::new(font.clone(), "Size 10");
   let mut size_20_button = Button::new(font.clone(), "Size 20");
   let mut size_50_button = Button::new(font.clone(), "Size 50");
@@ -151,12 +154,12 @@ fn main() {
       for widget in cell_type_widgets.iter_mut() {
         controls.push((LWidget(widget), 0.0));
       }
-      controls.extend(vec![
-        (LWidget(&mut gap1), 1.0),
-        (LWidget(&mut circle_button), 0.0),
+      controls.push(LWidget(&mut gap1), 1.0);
+      controls.extend(
+        /*(LWidget(&mut circle_button), 0.0),
         (LWidget(&mut square_button), 0.0),
         (LWidget(&mut diamond_button), 0.0),
-        (LWidget(&mut random_button), 0.0),
+        (LWidget(&mut random_button), 0.0),*/
         (LWidget(&mut gap2), 1.0),
         (LWidget(&mut size_1_button), 0.0),
         (LWidget(&mut size_2_button), 0.0),

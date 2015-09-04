@@ -11,8 +11,8 @@ num = "*"
 rand = "*"
 
 [dependencies.glfw]
-# git = "https://github.com/nstoddard/glfw-rs"
-path = "C:/Users/Nathan/Desktop/code/libs/glfw-rs"
+git = "https://github.com/bjz/glfw-rs"
+#path = "C:/Users/Nathan/Desktop/code/libs/glfw-rs"
 default-features = false
 
 [dependencies.image]
@@ -27,8 +27,9 @@ git = "https://github.com/nstoddard/vecmat"
 [dependencies.timer]
 git = "https://github.com/nstoddard/timer"
 
-[dependencies.glium-gui]
-path = "C:/Users/Nathan/Desktop/code/libs/glium-gui"
+[dependencies.gui-rs]
+git = "https://github.com/nstoddard/gui-rs"
+#path = "C:/Users/Nathan/Desktop/code/libs/glium-gui"
 
 [dependencies.glium]
 git = "https://github.com/tomaka/glium"
