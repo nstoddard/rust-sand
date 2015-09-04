@@ -89,7 +89,7 @@ pub enum CellType {
   Fluid(FluidType, f64),
   WaterGenerator,
   SandGenerator,
-  Sink,
+  Destroyer,
   Plant,
   Fire,
   Torch,
@@ -99,6 +99,7 @@ pub enum CellType {
   Wire,
   ElectronHead,
   ElectronTail,
+  Eater,
 }
 
 #[derive(Copy, Clone)]
@@ -137,7 +138,7 @@ impl CellType {
       CellType::Fluid(typ, _) => grid.fluid[&typ].name,
       CellType::WaterGenerator => "water generator",
       CellType::SandGenerator => "sand generator",
-      CellType::Sink => "sink",
+      CellType::Destroyer => "destroyer",
       CellType::Plant => "plant",
       CellType::Fire => "fire",
       CellType::Torch => "torch",
@@ -147,6 +148,7 @@ impl CellType {
       CellType::Wire => "wire",
       CellType::ElectronHead => "electron head",
       CellType::ElectronTail => "electron tail",
+      CellType::Eater => "eater",
     }
   }
 
@@ -182,7 +184,7 @@ impl Cell {
       CellType::Fluid(typ, amount) => grid.fluid[&typ].color.blend(background_color(), (amount as f32/1.0).min(1.0).max(0.5)),
       CellType::WaterGenerator => Color3::rgb(0.0, 0.5, 1.0),
       CellType::SandGenerator => Color3::rgb(0.9, 0.5, 0.2),
-      CellType::Sink => Color3::black(),
+      CellType::Destroyer => Color3::black(),
       CellType::Plant => Color3::green()*0.6,
       CellType::Fire => Color3::rgb(1.0, 0.325, 0.0),
       CellType::Torch => Color3::rgb(1.0, 0.1, 0.0),
@@ -192,6 +194,7 @@ impl Cell {
       CellType::Wire => Color3::rgb(0.8, 0.4, 0.0),
       CellType::ElectronHead => Color3::rgb(1.0, 1.0, 0.5),
       CellType::ElectronTail => Color3::rgb(0.5, 0.2, 1.0),
+      CellType::Eater => Color3::black(),
     }
   }
 
@@ -347,7 +350,7 @@ impl Cell {
           grid[pos].typ = CellType::Empty;
         }
       }
-      CellType::Sink => {
+      CellType::Destroyer => {
         if grid.in_range(pos+up) {
           grid[pos+up].typ = CellType::Empty;
         }
@@ -424,6 +427,27 @@ impl Cell {
           match grid[neighbor].typ {
             CellType::Fluid(FluidType::Water, amount) /*if amount >= 1.0*/ => grid[neighbor].typ = CellType::Plant,
             _ => (),
+          }
+        }
+      },
+      CellType::Eater => {
+        let mut neighbor = pos;
+        let rand = rng.gen::<f64>();
+        if rand < 0.25 {
+          neighbor = neighbor + Vec2(1,0)
+        } else if rand < 0.5 {
+          neighbor = neighbor + Vec2(-1,0)
+        } else if rand < 0.75 {
+          neighbor = neighbor + Vec2(0,1)
+        } else {
+          neighbor = neighbor + Vec2(0,-1)
+        }
+        if grid.in_range(neighbor) {
+          match grid[neighbor].typ {
+            CellType::Empty => if rng.gen::<f64>() < 0.25 {
+              grid[pos].typ = CellType::Empty;
+            },
+            _ => grid[neighbor].typ = CellType::Eater,
           }
         }
       },

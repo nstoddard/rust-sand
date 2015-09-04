@@ -62,7 +62,7 @@ fn main() {
     CellType::Fluid(FluidType::Cement, 1.0),
     CellType::WaterGenerator,
     CellType::SandGenerator,
-    CellType::Sink,
+    CellType::Destroyer,
     CellType::Plant,
     CellType::Fire,
     CellType::Torch,
@@ -70,6 +70,7 @@ fn main() {
     CellType::Wire,
     CellType::ElectronHead,
     CellType::ElectronTail,
+    CellType::Eater,
   ];
 
   let world_size = Vec2(1200/cell_size, 750/cell_size);
@@ -90,19 +91,21 @@ fn main() {
   let mut step_button = Button::new(font.clone(), "Step");
   let mut draw_mode_button = Button::new(font.clone(), "Toggle draw mode");
 
-  let shape_buttons = vec![
-    (Button::new(font.clone(), "Circle"), Brush::Circle,
-    (Button::new(font.clone(), "Square"), Brush::Square,
-    (Button::new(font.clone(), "Diamond"), Brush::Diamond,
-    (Button::new(font.clone(), "Random"), Brush::Random,
+  let mut shape_buttons = vec![
+    (Button::new(font.clone(), "Circle"), Brush::Circle),
+    (Button::new(font.clone(), "Square"), Brush::Square),
+    (Button::new(font.clone(), "Diamond"), Brush::Diamond),
+    (Button::new(font.clone(), "Random"), Brush::Random),
   ];
 
-  let mut size_1_button = Button::new(font.clone(), "Size 1");
-  let mut size_2_button = Button::new(font.clone(), "Size 2");
-  let mut size_5_button = Button::new(font.clone(), "Size 5");
-  let mut size_10_button = Button::new(font.clone(), "Size 10");
-  let mut size_20_button = Button::new(font.clone(), "Size 20");
-  let mut size_50_button = Button::new(font.clone(), "Size 50");
+  let mut size_buttons = vec![
+    (Button::new(font.clone(), "Size 1"), 1),
+    (Button::new(font.clone(), "Size 2"), 2),
+    (Button::new(font.clone(), "Size 5"), 5),
+    (Button::new(font.clone(), "Size 10"), 10),
+    (Button::new(font.clone(), "Size 20"), 20),
+    (Button::new(font.clone(), "Size 50"), 50),
+  ];
 
   // TODO: get rid of this hack
   let mut gap0 = EmptyWidget::new(Vec2::zero());
@@ -154,21 +157,15 @@ fn main() {
       for widget in cell_type_widgets.iter_mut() {
         controls.push((LWidget(widget), 0.0));
       }
-      controls.push(LWidget(&mut gap1), 1.0);
-      controls.extend(
-        /*(LWidget(&mut circle_button), 0.0),
-        (LWidget(&mut square_button), 0.0),
-        (LWidget(&mut diamond_button), 0.0),
-        (LWidget(&mut random_button), 0.0),*/
-        (LWidget(&mut gap2), 1.0),
-        (LWidget(&mut size_1_button), 0.0),
-        (LWidget(&mut size_2_button), 0.0),
-        (LWidget(&mut size_5_button), 0.0),
-        (LWidget(&mut size_10_button), 0.0),
-        (LWidget(&mut size_20_button), 0.0),
-        (LWidget(&mut size_50_button), 0.0),
-        (LWidget(&mut gap3), 1.0),
-      ].into_iter());
+      controls.push((LWidget(&mut gap1), 1.0));
+      for &mut (ref mut button, _) in &mut shape_buttons {
+        controls.push((LWidget(button), 0.0));
+      }
+      controls.push((LWidget(&mut gap2), 1.0));
+      for &mut (ref mut button, _) in &mut size_buttons {
+        controls.push((LWidget(button), 0.0));
+      }
+      controls.push((LWidget(&mut gap3), 1.0));
 
       window.draw_gui(
         Row(Leading, 0, vec![
@@ -182,6 +179,11 @@ fn main() {
       if widget.was_pressed() {
         cur_cell_type_index = i;
         cur_cell_type = cell_types[cur_cell_type_index];
+      }
+      if cur_cell_type_index == i {
+        widget.set_text_color(Color4::red());
+      } else {
+        widget.set_text_color(Color4::black());
       }
     }
 
@@ -206,35 +208,25 @@ fn main() {
       draw_temp = !draw_temp;
     }
 
-    if circle_button.was_pressed() {
-      brush = Brush::Circle;
+    for &mut (ref mut button, shape) in &mut shape_buttons {
+      if button.was_pressed() {
+        brush = shape;
+      }
+      if brush == shape {
+        button.set_text_color(Color4::red());
+      } else {
+        button.set_text_color(Color4::black());
+      }
     }
-    if square_button.was_pressed() {
-      brush = Brush::Square;
-    }
-    if diamond_button.was_pressed() {
-      brush = Brush::Diamond;
-    }
-    if random_button.was_pressed() {
-      brush = Brush::Random;
-    }
-    if size_1_button.was_pressed() {
-      brush_size = 1;
-    }
-    if size_2_button.was_pressed() {
-      brush_size = 2;
-    }
-    if size_5_button.was_pressed() {
-      brush_size = 5;
-    }
-    if size_10_button.was_pressed() {
-      brush_size = 10;
-    }
-    if size_20_button.was_pressed() {
-      brush_size = 20;
-    }
-    if size_50_button.was_pressed() {
-      brush_size = 50;
+    for &mut (ref mut button, size) in &mut size_buttons {
+      if button.was_pressed() {
+        brush_size = size;
+      }
+      if brush_size == size {
+        button.set_text_color(Color4::red());
+      } else {
+        button.set_text_color(Color4::black());
+      }
     }
 
     for event in window.get_events().into_iter() {
@@ -350,7 +342,7 @@ fn main() {
 }
 
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Brush {
   Circle,
   Square,
