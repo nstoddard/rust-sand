@@ -67,10 +67,15 @@ fn main() {
     CellType::Fire,
     CellType::Torch,
     CellType::LifeOn,
-    CellType::Wire,
-    CellType::ElectronHead,
-    CellType::ElectronTail,
+    CellType::Wire(WireType::Normal),
+    CellType::Wire(WireType::Input),
+    CellType::Wire(WireType::Output),
+    CellType::Wire(WireType::Nor(false)),
+    CellType::Wire(WireType::SignalEmitter),
+    CellType::ElectronHead(WireType::Normal),
     CellType::Eater,
+    CellType::Fuse(false),
+    CellType::Virus(virus_lifetime),
   ];
 
   let world_size = Vec2(1200/cell_size, 750/cell_size);
@@ -82,7 +87,7 @@ fn main() {
   let window_mode = WindowMode::Windowed{title: "Falling sand game".to_string(), min_size: world_size * cell_size};
   let resource_path = Path::new("resources");
   let mut window = Window::new(window_mode/*, &resource_path*/);
-  let font = Font::new(&(resource_path.join("DejaVuSans.ttf")), 16, &window);
+  let font = Font::new(&(resource_path.join("DejaVuSans.ttf")), 14, &window);
 
   let mut fps_logger = FPSLogger::new(1.0);
 

@@ -1,17 +1,15 @@
 extern crate glium;
 
-use num::*;
+use num::range_inclusive;
 
 use std::ops::{Index, IndexMut};
 use rand::Rng;
 use std::iter::repeat;
 use std::collections::*;
 use std::borrow::Cow;
-// use std::num::One;
-// use std::ops::{Add, Range};
 
 use vecmat::*;
-// use vecmat::num_ext::*;
+use vecmat::num_ext::*;
 
 use glium::{texture, index};
 use glium::texture::*;
@@ -25,12 +23,6 @@ use gui::color::*;
 use gui::util::*;
 use gui::widgets::*;
 use gui::window::*;
-
-
-/*// TODO: handle case where `stop` is highest possible value
-pub fn range_inclusive<A>(start: A, stop: A) -> Range<A> where A: Step + One + Clone + Add<Output = A> {
-  start..(stop + A::one())
-}*/
 
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -73,12 +65,14 @@ pub struct Fluid {
   color: Color3,
   density: f64,
   // Used to determine whether the fluid falls or rises
-  // If down_dir=up and vice versa, it's considered ligher than air
   down_dir: Vec2<i32>,
   up_dir: Vec2<i32>,
 }
 
 // pub type TypeId = u16;
+
+pub const virus_lifetime: i32 = 10;
+pub const tail_lifetime: i32 = 2;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum CellType {
@@ -96,10 +90,55 @@ pub enum CellType {
   ExplodingNitro(Vec2<i32>),
   LifeOn,
   LifeTurningOn,
-  Wire,
-  ElectronHead,
-  ElectronTail,
+  Wire(WireType),
+  ElectronHead(WireType),
+  ElectronTail(WireType, i32),
   Eater,
+  Fuse(bool),
+  Virus(i32),
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum WireType {
+  Normal,
+  Input,
+  Output,
+  Nor(bool),
+  SignalEmitter,
+}
+
+impl WireType {
+  pub fn can_signal_to(self, out: WireType) -> bool {
+    match (self, out) {
+      (WireType::Output, WireType::Input) => false,
+      (WireType::Output, _) => true,
+      (WireType::Input, WireType::Nor(_)) => true,
+      (WireType::Nor(_), WireType::Nor(_)) => true,
+      (WireType::Normal, WireType::Nor(false)) => true,
+      (WireType::Nor(false), WireType::Output) => true,
+      (WireType::Nor(true), WireType::Output) => false,
+      (WireType::SignalEmitter, _) => true,
+      (_, WireType::SignalEmitter) => false,
+
+
+      (WireType::Nor(_), _) => false,
+      (_, WireType::Nor(_)) => false,
+
+      (_, _) => true
+      /*(WireType::Normal, _) => true,
+      (_, WireType::Normal) => true,
+      (_, WireType::Output) => true,
+      (WireType::Output, _) => true,
+      (_, WireType::Input) => true,*/
+    }
+  }
+
+  pub fn transition_to(self) -> Self {
+    match self {
+      WireType::Nor(_) => WireType::Nor(false),
+      x => x
+    }
+  }
 }
 
 #[derive(Copy, Clone)]
@@ -145,10 +184,16 @@ impl CellType {
       CellType::ExplodingNitro(..) => "exploding nitro",
       CellType::LifeOn => "life cell",
       CellType::LifeTurningOn => "life cell",
-      CellType::Wire => "wire",
-      CellType::ElectronHead => "electron head",
-      CellType::ElectronTail => "electron tail",
+      CellType::Wire(WireType::Normal) => "wire",
+      CellType::Wire(WireType::Input) => "wire input",
+      CellType::Wire(WireType::Output) => "wire output",
+      CellType::Wire(WireType::Nor(_)) => "wire nor",
+      CellType::Wire(WireType::SignalEmitter) => "signal emitter",
+      CellType::ElectronHead(_) => "electron head",
+      CellType::ElectronTail(_, _) => "electron tail",
       CellType::Eater => "eater",
+      CellType::Fuse(_) => "fuse",
+      CellType::Virus(_) => "virus",
     }
   }
 
@@ -191,10 +236,18 @@ impl Cell {
       CellType::ExplodingNitro(..) => Color3::rgb(0.3, 0.5, 0.3),
       CellType::LifeOn => Color3::rgb(1.0, 1.0, 1.0),
       CellType::LifeTurningOn => Color3::rgb(0.8, 0.8, 0.8),
-      CellType::Wire => Color3::rgb(0.8, 0.4, 0.0),
-      CellType::ElectronHead => Color3::rgb(1.0, 1.0, 0.5),
-      CellType::ElectronTail => Color3::rgb(0.5, 0.2, 1.0),
+      CellType::Wire(WireType::Normal) => Color3::rgb(0.8, 0.4, 0.0),
+      CellType::Wire(WireType::Input) => Color3::rgb(0.8, 0.4, 0.5),
+      CellType::Wire(WireType::Output) => Color3::rgb(0.8, 0.9, 0.5),
+      CellType::Wire(WireType::Nor(false)) => Color3::rgb(0.7, 0.4, 0.2),
+      CellType::Wire(WireType::Nor(true)) => Color3::rgb(0.9, 0.3, 0.1),
+      CellType::Wire(WireType::SignalEmitter) => Color3::rgb(1.0, 1.0, 0.7),
+      CellType::ElectronHead(_) => Color3::rgb(1.0, 1.0, 0.5),
+      CellType::ElectronTail(_, _) => Color3::rgb(0.5, 0.2, 1.0),
       CellType::Eater => Color3::black(),
+      CellType::Fuse(false) => Color3::rgb(0.5, 0.1, 0.0),
+      CellType::Fuse(true) => Color3::rgb(0.8, 0.15, 0.0),
+      CellType::Virus(lifetime) => Color3::rgb(1.0, 0.25, 0.0).blend(background_color(), lifetime.max(0) as f32 / (virus_lifetime+2) as f32),
     }
   }
 
@@ -391,22 +444,46 @@ impl Cell {
           grid[pos].typ = CellType::Empty;
         }
       }
-      CellType::Wire => {
+      CellType::Wire(wtype) => {
         let mut neighbors = 0;
+        let mut set_nor = false;
         for neighbor in grid.moore(pos) {
-          if neighbor.typ == CellType::ElectronHead {
-            neighbors += 1;
+          if let CellType::ElectronHead(nbr_wtype) = neighbor.typ {
+            if nbr_wtype.can_signal_to(wtype) {
+              neighbors += 1;
+            }
           }
-          if neighbors == 1 || neighbors == 2 {
-            grid[pos].typ = CellType::ElectronHead;
+          if let CellType::Wire(WireType::Nor(false)) = self.typ {
+            if let CellType::Wire(WireType::Nor(true)) = neighbor.typ {
+              neighbors += 1;
+              set_nor = true;
+            }
+            if let CellType::ElectronHead(WireType::Normal) = neighbor.typ {
+              set_nor = true;
+            }
           }
         }
+        if neighbors > 0 {
+          if set_nor {
+            grid[pos].typ = CellType::Wire(WireType::Nor(true));
+          } else {
+            grid[pos].typ = CellType::ElectronHead(wtype);
+          }
+        }
+        if wtype == WireType::SignalEmitter {
+          grid[pos].typ = CellType::ElectronHead(WireType::SignalEmitter);
+        }
       }
-      CellType::ElectronHead => {
-        grid[pos].typ = CellType::ElectronTail;
+      CellType::ElectronHead(base) => {
+        grid[pos].typ = CellType::ElectronTail(base, tail_lifetime);
       }
-      CellType::ElectronTail => {
-        grid[pos].typ = CellType::Wire;
+      CellType::ElectronTail(base, lifetime) => {
+        let lifetime = lifetime-1;
+        if lifetime == 0 {
+          grid[pos].typ = CellType::Wire(base.transition_to());
+        } else {
+          grid[pos].typ = CellType::ElectronTail(base, lifetime);
+        }
       }
       CellType::LifeTurningOn => {
         grid[pos].typ = CellType::LifeOn;
@@ -451,32 +528,85 @@ impl Cell {
           }
         }
       },
+      CellType::Fuse(true) => {
+        grid[pos].typ = CellType::Fire;
+      },
+      CellType::Fuse(false) => {
+        for neighbor in grid.moore(pos) {
+          if neighbor.typ == CellType::Fuse(true) || neighbor.typ == CellType::Fire {
+            grid[pos].typ = CellType::Fuse(true);
+            break;
+          }
+        }
+      },
+      CellType::Virus(lifetime) => {
+        if rng.gen::<f64>() < 0.1 && can_move_up && lifetime >= 2 {
+          grid[pos+up].typ = CellType::Virus(virus_lifetime);
+          return;
+        }
+        if rng.gen::<f64>() < 0.1 && can_move_left && lifetime >= 2 {
+          grid[pos+left].typ = CellType::Virus(virus_lifetime);
+          return;
+        }
+        if rng.gen::<f64>() < 0.1 && can_move_right && lifetime >= 2 {
+          grid[pos+right].typ = CellType::Virus(virus_lifetime);
+          return;
+        }
+        if rng.gen::<f64>() < 0.1 && can_move_down && lifetime >= 2 {
+          grid[pos+down].typ = CellType::Virus(virus_lifetime);
+          return;
+        }
+        if lifetime <= 0 {
+          grid[pos].typ = CellType::Empty;
+        } else {
+          grid[pos].typ = CellType::Virus(lifetime-1);
+        }
+      },
       CellType::Fire => {
         if rng.gen::<f64>() < 0.18 && can_move_up {
           grid[pos+up].typ = CellType::Fire;
+          grid[pos].typ = CellType::Empty;
+          return;
         }
-        if rng.gen::<f64>() < 0.1 {
+        if rng.gen::<f64>() < 0.05 && can_move_left {
+          grid[pos+left].typ = CellType::Fire;
+          grid[pos].typ = CellType::Empty;
+          return;
+        }
+        if rng.gen::<f64>() < 0.05 && can_move_right {
+          grid[pos+right].typ = CellType::Fire;
+          grid[pos].typ = CellType::Empty;
+          return;
+        }
+        if rng.gen::<f64>() < 0.03 && can_move_down {
+          grid[pos+down].typ = CellType::Fire;
+          grid[pos].typ = CellType::Empty;
+          return;
+        }
+        if rng.gen::<f64>() < 0.03 {
           grid[pos].typ = CellType::Empty;
         }
-        let mut neighbor = pos;
-        let rand = rng.gen::<f64>();
-        if rand < 0.25 {
-          neighbor = neighbor + Vec2(1,0)
-        } else if rand < 0.5 {
-          neighbor = neighbor + Vec2(-1,0)
-        } else if rand < 0.75 {
-          neighbor = neighbor + Vec2(0,1)
-        } else {
-          neighbor = neighbor + Vec2(0,-1)
-        }
-        if grid.in_range(neighbor) {
-          match grid[neighbor].typ {
-            CellType::Plant => grid[neighbor].typ = CellType::Fire,
-            CellType::Fluid(FluidType::Oil, amount) => grid[neighbor].typ = CellType::Fire,
-            CellType::Fluid(FluidType::Methane, amount) => grid[neighbor].typ = CellType::Fire,
-            CellType::Fluid(FluidType::Water, amount) => grid[neighbor].typ = CellType::Fluid(FluidType::Steam, amount),
-            CellType::Solid(SolidType::Ice) => grid[neighbor].typ = CellType::Fluid(FluidType::Steam, 1.0),
-            _ => (),
+        for _ in 0..3 {
+          let mut neighbor = pos;
+          let rand = rng.gen::<f64>();
+          if rand < 0.25 {
+            neighbor = neighbor + Vec2(1,0)
+          } else if rand < 0.5 {
+            neighbor = neighbor + Vec2(-1,0)
+          } else if rand < 0.75 {
+            neighbor = neighbor + Vec2(0,1)
+          } else {
+            neighbor = neighbor + Vec2(0,-1)
+          }
+          if grid.in_range(neighbor) {
+            match grid[neighbor].typ {
+              CellType::Plant => grid[neighbor].typ = CellType::Fire,
+              CellType::Fluid(FluidType::Oil, amount) => grid[neighbor].typ = CellType::Fire,
+              CellType::Fluid(FluidType::Methane, amount) => grid[neighbor].typ = CellType::Fire,
+              CellType::Fluid(FluidType::Water, amount) => grid[neighbor].typ = CellType::Fluid(FluidType::Steam, amount),
+              CellType::Solid(SolidType::Ice) => grid[neighbor].typ = CellType::Fluid(FluidType::Steam, 1.0),
+              _ => (),
+            }
           }
         }
       },
@@ -827,7 +957,7 @@ impl World {
         fall_speed: 0.5, // TODO: this doesn't seem to do anything
         compressibility: 0.01,
         color: Color3::rgb(0.3, 0.3, 0.3),
-        density: 2.0,
+        density: 1.5,
         down_dir: down_,
         up_dir: up_,
       },
