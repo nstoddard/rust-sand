@@ -94,7 +94,6 @@ fn main() {
   let mut quit_button = Button::new(font.clone(), "Quit");
   let mut pause_button = Button::new(font.clone(), "Pause");
   let mut step_button = Button::new(font.clone(), "Step");
-  let mut draw_mode_button = Button::new(font.clone(), "Toggle draw mode");
 
   let mut shape_buttons = vec![
     (Button::new(font.clone(), "Circle"), Brush::Circle),
@@ -136,8 +135,6 @@ fn main() {
   let mut brush = Brush::Circle;
   let mut brush_size = 10;
 
-  let mut draw_temp = false;
-
   let mut old_mouse_pos = None;
 
   while !window.should_close() {
@@ -148,7 +145,7 @@ fn main() {
     if !paused {
       world.simulate(&mut rng);
     }
-    world.update_mesh(&window, draw_temp);
+    world.update_mesh(&window);
 
     {
       let mut controls = vec![
@@ -156,7 +153,6 @@ fn main() {
         (LWidget(&mut gap4), 1.0),
         (LWidget(&mut pause_button), 0.0),
         (LWidget(&mut step_button), 0.0),
-        (LWidget(&mut draw_mode_button), 0.0),
         (LWidget(&mut gap0), 1.0),
       ];
       for widget in cell_type_widgets.iter_mut() {
@@ -209,9 +205,6 @@ fn main() {
       pause_button.set_text("Unpause");
       world.simulate(&mut rng);
     }
-    if draw_mode_button.was_pressed() {
-      draw_temp = !draw_temp;
-    }
 
     for &mut (ref mut button, shape) in &mut shape_buttons {
       if button.was_pressed() {
@@ -248,9 +241,6 @@ fn main() {
                 pause_button.set_text("Pause");
               }
             },
-            glfw::Key::M => {
-              draw_temp = !draw_temp;
-            }
             glfw::Key::Space => {
               paused = true;
               pause_button.set_text("Unpause");
@@ -280,15 +270,6 @@ fn main() {
               }
               println!("Total water: {}", total_water);
             },
-            glfw::Key::F => {
-              let mut total_heat = 0.0;
-              for y in 0..world.grid.size.y {
-                for x in 0..world.grid.size.x {
-                  total_heat += world.grid[Vec2(x,y)].heat;
-                }
-              }
-              println!("Total heat: {}", total_heat);
-            }
             _ => ()
           }
         },
@@ -312,16 +293,6 @@ fn main() {
         },
         Event::MouseButton(glfw::MouseButton::Button1, Action::Release, _, pos) => {
           old_mouse_pos = None;
-        },
-        // TODO: remove this hack
-        Event::MouseButton(glfw::MouseButton::Button2, Action::Press, _, pos) => {
-          let pos = Vec2(pos.x as i32, pos.y as i32);
-          let pos = pos/cell_size;
-          for point in brush.get_points(brush_size, pos, &mut rng).into_iter() {
-            if world.grid.in_range(point) {
-              world.grid[point].heat += 110.0;
-            }
-          }
         },
         Event::MouseMove(pos, ref buttons) if buttons.contains(&glfw::MouseButton::Button1) => {
           let pos = Vec2(pos.x as i32, pos.y as i32);
