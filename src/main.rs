@@ -89,7 +89,7 @@ fn main() {
   let mut window = Window::new(window_mode/*, &resource_path*/);
   let font = Font::new(&(resource_path.join("DejaVuSans.ttf")), 14, &window);
 
-  let mut fps_logger = FPSLogger::new(1.0);
+  // let mut fps_logger = FPSLogger::new(1.0);
 
   let mut quit_button = Button::new(font.clone(), "Quit");
   let mut pause_button = Button::new(font.clone(), "Pause");
@@ -138,7 +138,7 @@ fn main() {
   let mut old_mouse_pos = None;
 
   while !window.should_close() {
-    fps_logger.update();
+    // fps_logger.update();
     // check_gl_error("game loop");
 
 

@@ -921,7 +921,6 @@ impl World {
           _ => ()
         }
 
-        // self.grid.cells[y as usize][x as usize].updated = false;
         self.grid.updated[y as usize][x as usize] = false;
       }
     }
